@@ -1,6 +1,6 @@
 package api.v1.dto
 
-import model.state.game.GameConfig
+import model.GameConfig
 
 class Game(
     val config: GameConfig,
