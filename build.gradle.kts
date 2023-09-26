@@ -6,6 +6,7 @@ plugins {
     kotlin("plugin.lombok") version "1.8.10"
     application
     id("com.google.protobuf") version "0.8.19"
+    `maven-publish`
 }
 
 group = "ru.nsu.shelbogashev"
@@ -20,8 +21,6 @@ dependencies {
     implementation("com.google.protobuf:protobuf-kotlin:3.24.3")
     // https://mvnrepository.com/artifact/com.google.protobuf/protobuf-gradle-plugin
     runtimeOnly("com.google.protobuf:protobuf-gradle-plugin:0.9.4")
-    // https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-maven-lombok
-    implementation("org.jetbrains.kotlin:kotlin-maven-lombok:1.9.10")
 
     testImplementation(kotlin("test"))
 }
@@ -59,4 +58,22 @@ tasks.processResources {
 
 protobuf {
     buildDir = File(protobufGenPath)
+}
+
+publishing {
+    repositories {
+        maven {
+            name = "GitHubPackages"
+            url = uri("https://maven.pkg.github.com/EricShelbogashev/snake-io-core")
+            credentials {
+                username = project.findProperty("gpr.user") as String?
+                password = project.findProperty("gpr.key") as String?
+            }
+        }
+    }
+    publications {
+        register<MavenPublication>("gpr") {
+            from(components["java"])
+        }
+    }
 }
