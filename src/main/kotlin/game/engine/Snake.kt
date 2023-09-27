@@ -8,7 +8,6 @@ import api.v1.dto.Player
 class Snake(
     field: Field, player: Player, head: Coords
 ) {
-    val score: Int
     private var _status: Status
     private val player: Player
     val status: Status
@@ -22,7 +21,6 @@ class Snake(
     init {
         this.body = ArrayDeque(2)
         this.field = field
-        this.score = player.score
         this.player = player
         this._status = Status.ALIVE
 
@@ -49,6 +47,7 @@ class Snake(
         assert(status == Status.ALIVE) {
             "После смерти змея не может двигаться."
         }
+        if (direction().reverse() == direction) return moveForward()
         val newHead = newHead(this, direction)
 
         // Змея двигается без изменений
@@ -68,6 +67,7 @@ class Snake(
             food.eat()
             body.addFirst(newHead)
             field.points[newHead] = player.id
+            player.score += 1
             return
         }
 
@@ -120,7 +120,6 @@ class Snake(
         assert(status == Status.ALIVE) {
             "Мертвая змея не может иметь направления движения."
         }
-
         val head = body[0]
         val second = body[1]
         return when (head) {

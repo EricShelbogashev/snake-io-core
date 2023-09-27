@@ -5,14 +5,16 @@ import api.v1.dto.GameState
 import api.v1.dto.Player
 import model.GameConfig
 import java.net.InetSocketAddress
+import kotlin.random.Random
+import kotlin.random.nextInt
 
 class Field(
     val config: GameConfig
 ) {
-    val players: MutableMap<Int, Player> = mutableMapOf()
-    val snakes: MutableMap<Int, Snake> = mutableMapOf()
-    val food: MutableMap<Coords, Food> = mutableMapOf()
-    val points: MutableMap<Coords, Int> = mutableMapOf()
+    val players: MutableMap<Int, Player> = hashMapOf()
+    val snakes: MutableMap<Int, Snake> = hashMapOf()
+    val food: MutableMap<Coords, Food> = hashMapOf()
+    val points: MutableMap<Coords, Int> = hashMapOf()
     val collisionsResolver = CollisionsResolver(this)
 
     private var poolIds: Int = config.masterPlayerId + 1
@@ -23,6 +25,7 @@ class Field(
     }
 
     fun calculateStep(directions: Map<Int, Direction>): GameState {
+        // Свиг змеек.
         (0..<poolIds).forEach { id ->
             val direction = directions[id]
             val snake = snakes[id]!!
@@ -41,7 +44,23 @@ class Field(
 
         collisionsResolver.resolveAll()
 
-        // TODO: спавнить еду
+        // Спавн еды.
+        val diff = players.size + config.foodStatic - food.size
+        if (diff > 0) {
+            for (i in 1..diff) {
+                val foodObj = Food(
+                    this, Coords(
+                        this,
+                        x = Random.nextInt(0..<config.width),
+                        y = Random.nextInt(0..<config.height)
+                    )
+                )
+                if (!points.containsKey(foodObj.coords())) {
+                    points[foodObj.coords()] = -1
+                    food[foodObj.coords()] = foodObj
+                }
+            }
+        }
         // TODO: просчитать место для спавна игрока
 
         val step = gameStateNum++
@@ -66,6 +85,7 @@ class Field(
         // Выдаем идентификатор
         player.id = if (master) config.masterPlayerId else getId()
         player.score = 0
+        players[player.id] = player
         Snake(this, player, FAKE_HEAD)
         return player
     }

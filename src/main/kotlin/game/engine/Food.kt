@@ -3,7 +3,10 @@ package game.engine
 class Food(
     field: Field,
     coords: Coords
-) : api.v1.dto.Food(coords.x, coords.x) {
+) : api.v1.dto.Food(
+    x = coords.x,
+    y = coords.y
+) {
     private val field: Field
     private var coords: Coords?
 
@@ -36,5 +39,9 @@ class Food(
 
     override fun hashCode(): Int {
         return coords.hashCode()
+    }
+
+    override fun toString(): String {
+        return "Food(coords=$coords)"
     }
 }

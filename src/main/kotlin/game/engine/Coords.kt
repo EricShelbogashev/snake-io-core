@@ -3,14 +3,9 @@ package game.engine
 import api.v1.dto.Direction
 import org.jetbrains.annotations.Contract
 
-class Coords(
-    field: Field, x: Int, y: Int
+data class Coords(
+    val field: Field, override val x: Int, override val y: Int
 ): api.v1.dto.Coords(x, y) {
-    private val field: Field
-
-    init {
-        this.field = field
-    }
 
     /**
      * @return  точку, смещенную в тороидальном поле field от текущей на steps влево
@@ -84,5 +79,9 @@ class Coords(
 
     override fun hashCode(): Int {
         return 31 * x + y
+    }
+
+    override fun toString(): String {
+        return "Coords(x=$x, y=$y)"
     }
 }

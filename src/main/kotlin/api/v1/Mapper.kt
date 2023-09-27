@@ -4,6 +4,7 @@ import api.v1.dto.*
 import me.ippolitov.fit.snakes.SnakesProto
 import api.v1.dto.Coords
 import api.v1.dto.Direction
+import me.ippolitov.fit.snakes.SnakesProto.GamePlayer
 import model.GameConfig
 import java.util.function.Function
 
@@ -40,11 +41,13 @@ object Mapper {
 
     private fun toProtoGamePlayersBuilder(players: Array<Player>): SnakesProto.GamePlayers.Builder {
         val builder = SnakesProto.GamePlayers.newBuilder()
-        players.forEach { player ->
-            val protoPlayer = toProtoPlayerBuilder(player)
-            builder.playersBuilderList.add(protoPlayer)
-        }
+        val protoGamePlayers = players.map(::toProtoPlayer)
+        builder.addAllPlayers(protoGamePlayers)
         return builder
+    }
+
+    private fun toProtoPlayer(player: Player): GamePlayer {
+        return toProtoPlayerBuilder(player).build()
     }
 
     private fun toProtoPlayerBuilder(player: Player): SnakesProto.GamePlayer.Builder {

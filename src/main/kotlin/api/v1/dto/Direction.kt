@@ -8,4 +8,13 @@ enum class Direction {
             return entries.random()
         }
     }
+
+    fun reverse(): Direction {
+        return when (this) {
+            UP -> DOWN
+            DOWN -> UP
+            LEFT -> RIGHT
+            RIGHT -> LEFT
+        }
+    }
 }

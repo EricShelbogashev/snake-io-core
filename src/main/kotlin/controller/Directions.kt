@@ -8,14 +8,14 @@ class Directions {
     private val sequence: MutableMap<Int, Long> = mutableMapOf()
 
     @Synchronized
-    fun request(message: Steer) {
-        if (!data.containsKey(message.senderId)) {
-            data[message.senderId] = message.direction
+    fun request(senderId: Int, direction: Direction, sequenceNumber: Long) {
+        if (!data.containsKey(senderId)) {
+            data[senderId] = direction
+            sequence[senderId] = sequenceNumber
         } else {
-            val newSequenceNumber = message.msgSeq
-            if (sequence[message.senderId]!! < newSequenceNumber) {
-                data[message.senderId] = message.direction
-                sequence[message.senderId] = newSequenceNumber
+            if (sequence[senderId]!! < sequenceNumber) {
+                data[senderId] = direction
+                sequence[senderId] = sequenceNumber
             }
         }
     }

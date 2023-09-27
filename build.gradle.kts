@@ -1,10 +1,13 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import com.google.protobuf.gradle.proto
 import com.google.protobuf.gradle.protobuf
+import kotlin.io.path.Path
 
 plugins {
     kotlin("jvm") version "1.9.0"
     application
     id("com.google.protobuf") version "0.8.19"
+    id("com.github.johnrengelman.shadow") version "8.1.1"
     `maven-publish`
 }
 
@@ -43,6 +46,22 @@ sourceSets {
             srcDir("src/main/proto")
         }
         kotlin.srcDirs += File(protobufGenPath)
+    }
+}
+
+tasks {
+    named<ShadowJar>("shadowJar") {
+        archiveBaseName.set("snake-io-core")
+        destinationDirectory.set(projectDir.resolve(Path("build", "out").toFile()))
+        manifest {
+            attributes(mapOf("Main-Class" to "MainKt"))
+        }
+    }
+}
+
+tasks {
+    build {
+        dependsOn(shadowJar)
     }
 }
 

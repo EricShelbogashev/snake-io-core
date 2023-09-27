@@ -1,4 +1,5 @@
 import api.v1.dto.Announcement
+import api.v1.dto.Direction
 import controller.GameController
 import controller.LobbyController
 import model.GameConfig
@@ -77,6 +78,13 @@ class GameClientPermissionLayer(address: InetSocketAddress, private val stateLis
             throw IllegalStateException("not able to get config not from game state")
         }
         return (state as MatchState).config()
+    }
+
+    override fun move(direction: Direction) {
+        if (state !is MatchState) {
+            throw IllegalStateException("not able to move snake not from game process")
+        }
+        return (state as MatchState).move(direction)
     }
 
     override fun close() {
