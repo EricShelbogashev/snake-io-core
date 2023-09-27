@@ -1,4 +1,4 @@
-package model.state.game.engine;
+package game.engine;
 
 /**
  * Соглашение: "завершение обхода" -> "завершение рассчета перемещения змей на новом шаге"
@@ -12,7 +12,7 @@ package model.state.game.engine;
  * 2. Змея попадает в клетку, где был хвост:
  * 2.1. Если на момент завершения обхода змея
  * */
-internal class CollisionsResolver(
+class CollisionsResolver(
     private var field: Field
 ) {
     private var collisions: MutableMap<Coords, Snake> = mutableMapOf()

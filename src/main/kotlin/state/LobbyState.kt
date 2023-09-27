@@ -1,26 +1,19 @@
 package state
 
-import com.google.protobuf.InvalidProtocolBufferException
-import me.ippolitov.fit.snakes.SnakesProto.GameMessage
 import Context
 import GameClientPermissionLayer
-import model.controller.LobbyController
-import model.controller.OnGameAnnouncementListener
-import model.state.client.MasterGameState
-import model.state.game.GameConfig
-import java.net.DatagramPacket
-import java.net.MulticastSocket
+import api.v1.dto.Announcement
+import controller.LobbyController
+import model.GameConfig
 
 class LobbyState internal constructor(
-    private val context: Context, private val gameClientPermissionLayer: GameClientPermissionLayer
-) : State(context), LobbyController {
-    private var listener: OnGameAnnouncementListener? = null
-    private var receiveAnnouncementsTask: GameAnnouncementListenerTask? = null
+    private val context: Context, gameClientPermissionLayer: GameClientPermissionLayer
+) : State(context, gameClientPermissionLayer), LobbyController {
 
     override fun newGame(config: GameConfig) {
-        val state = MasterGameState(context, config)
-        receiveAnnouncementsTask?.interrupt()
-        gameClientPermissionLayer.changeState(state)
+        gameClientPermissionLayer.changeState(
+            MasterMatchState(context, config, gameClientPermissionLayer)
+        )
     }
 
     override fun joinGame(gameName: String) {
@@ -31,38 +24,12 @@ class LobbyState internal constructor(
         TODO("Not yet implemented")
     }
 
-    override fun setGameAnnouncementListener(listener: OnGameAnnouncementListener) {
-        this.listener = listener
-        val task = GameAnnouncementListenerTask(context.inputSocket, listener)
-        task.start()
-        receiveAnnouncementsTask?.interrupt()
-        receiveAnnouncementsTask = task
+    override fun setGameAnnouncementListener(action: (announcement: Announcement) -> Unit) {
+        TODO("Not yet implemented")
     }
 
     override fun removeGameAnnouncementListener() {
-        receiveAnnouncementsTask?.interrupt()
-        receiveAnnouncementsTask = null
-        listener = null
+        TODO("Not yet implemented")
     }
 
-    private class GameAnnouncementListenerTask(
-        private val inputSocket: MulticastSocket, private val listener: OnGameAnnouncementListener
-    ) : Thread() {
-        private var buffer = ByteArray(4 * 1024)
-        override fun run() {
-            while (true) {
-                val packet = DatagramPacket(buffer, buffer.size)
-                inputSocket.receive(packet)
-                val gameMessage = try {
-                    GameMessage.parseFrom(packet.data)
-                } catch (e: InvalidProtocolBufferException) {
-                    System.err.println(e.message)
-                    e.printStackTrace()
-                    continue
-                }
-                val announcement = gameMessage.announcement
-                listener.receiveAnnouncement(announcement)
-            }
-        }
-    }
 }

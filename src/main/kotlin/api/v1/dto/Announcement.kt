@@ -3,7 +3,11 @@ package api.v1.dto
 import java.net.InetSocketAddress
 
 class Announcement(
-    override val address: InetSocketAddress,
-    override val senderId: Int,
+    override var address: InetSocketAddress,
+    override var senderId: Int,
     val games: Array<Game>
-) : Message(address, senderId)
+) : Message(address, senderId) {
+    override fun toString(): String {
+        return "Announcement(address=$address, senderId=$senderId, games=${games.contentToString()})"
+    }
+}

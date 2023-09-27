@@ -1,6 +1,10 @@
 package api.v1.dto
 
-class Food(
-    val x: Int,
-    val y: Int
-)
+open class Food(
+    x: Int,
+    y: Int
+) : Coords(x, y) {
+    override fun toString(): String {
+        return "Food()"
+    }
+}

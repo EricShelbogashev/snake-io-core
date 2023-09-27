@@ -1,18 +1,14 @@
-import model.controller.GameController
-import model.controller.LobbyController
-import model.controller.OnGameAnnouncementListener
-import model.controller.OnGameStateChangeListener
-import model.state.game.GameConfig
-import state.GameState
-import state.HaltState
-import state.LobbyState
-import state.State
+import api.v1.dto.Announcement
+import controller.GameController
+import controller.LobbyController
+import model.GameConfig
+import state.*
 import java.io.Closeable
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.MulticastSocket
 
-internal class GameClientPermissionLayer(address: InetSocketAddress) :
+class GameClientPermissionLayer(address: InetSocketAddress, private val stateListener: (state: State) -> Unit) :
     LobbyController,
     GameController,
     Closeable {
@@ -24,6 +20,7 @@ internal class GameClientPermissionLayer(address: InetSocketAddress) :
 
     fun changeState(state: State) {
         this.state = state
+        stateListener(state)
     }
 
     override fun newGame(config: GameConfig) {
@@ -47,11 +44,11 @@ internal class GameClientPermissionLayer(address: InetSocketAddress) :
         (state as LobbyState).watchGame(gameName)
     }
 
-    override fun setGameAnnouncementListener(listener: OnGameAnnouncementListener) {
+    override fun setGameAnnouncementListener(action: (announcement: Announcement) -> Unit) {
         if (state !is LobbyState) {
             throw IllegalStateException("not able to watch the announcements not from lobby")
         }
-        (state as LobbyState).setGameAnnouncementListener(listener)
+        (state as LobbyState).setGameAnnouncementListener(action)
     }
 
     override fun removeGameAnnouncementListener() {
@@ -62,22 +59,29 @@ internal class GameClientPermissionLayer(address: InetSocketAddress) :
     }
 
     override fun leaveGame() {
-        if (state !is GameState) {
+        if (state !is MatchState) {
             throw IllegalStateException("not able to leave the game not from game")
         }
-        (state as GameState).leaveGame()
+        (state as MatchState).leaveGame()
     }
 
-    override fun setOnGameStateChangeListener(listener: OnGameStateChangeListener) {
-        if (state !is GameState) {
+    override fun setOnGameStateChangeListener(action: (state: api.v1.dto.GameState) -> Unit) {
+        if (state !is MatchState) {
             throw IllegalStateException("not able to handle game updates not out of game process")
         }
-        (state as GameState).setOnGameStateChangeListener(listener)
+        (state as MatchState).setOnGameStateChangeListener(action)
+    }
+
+    override fun config(): GameConfig {
+        if (state !is MatchState) {
+            throw IllegalStateException("not able to get config not from game state")
+        }
+        return (state as MatchState).config()
     }
 
     override fun close() {
         context.inputSocket.close()
-        context.outputSocket.close()
-        state = HaltState(context)
+        context.commonSocket.close()
+        state = HaltState(context, this)
     }
 }

@@ -3,7 +3,6 @@ import com.google.protobuf.gradle.protobuf
 
 plugins {
     kotlin("jvm") version "1.9.0"
-    kotlin("plugin.lombok") version "1.8.10"
     application
     id("com.google.protobuf") version "0.8.19"
     `maven-publish`
@@ -17,7 +16,6 @@ repositories {
 }
 
 dependencies {
-    // https://mvnrepository.com/artifact/com.google.protobuf/protobuf-kotlin
     implementation("com.google.protobuf:protobuf-kotlin:3.24.3")
     // https://mvnrepository.com/artifact/com.google.protobuf/protobuf-gradle-plugin
     runtimeOnly("com.google.protobuf:protobuf-gradle-plugin:0.9.4")

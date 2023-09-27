@@ -7,7 +7,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
 
-class GameController(
+class GameRestController(
     private val socket: DatagramSocket
 ) {
     private var msgSeq: Long = 0
