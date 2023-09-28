@@ -9,7 +9,8 @@ import kotlin.random.Random
 import kotlin.random.nextInt
 
 class Field(
-    val config: GameConfig
+    val config: GameConfig,
+    private val masterPlayerId: Int
 ) {
     val players: MutableMap<Int, Player> = hashMapOf()
     val snakes: MutableMap<Int, Snake> = hashMapOf()
@@ -17,7 +18,7 @@ class Field(
     val points: MutableMap<Coords, Int> = hashMapOf()
     val collisionsResolver = CollisionsResolver(this)
 
-    private var poolIds: Int = config.masterPlayerId + 1
+    private var poolIds: Int = masterPlayerId + 1
     private var gameStateNum: Int = 0
 
     fun getId(): Int {
@@ -66,7 +67,7 @@ class Field(
         val step = gameStateNum++
         return GameState(
             address = InetSocketAddress(0),
-            senderId = config.masterPlayerId,
+            senderId = masterPlayerId,
             number = step,
             players = players.values.toTypedArray(),
             food = food.values.toTypedArray(),
@@ -83,7 +84,7 @@ class Field(
         val FAKE_HEAD = Coords(this, 5, 5)
 
         // Выдаем идентификатор
-        player.id = if (master) config.masterPlayerId else getId()
+        player.id = if (master) masterPlayerId else getId()
         player.score = 0
         players[player.id] = player
         Snake(this, player, FAKE_HEAD)

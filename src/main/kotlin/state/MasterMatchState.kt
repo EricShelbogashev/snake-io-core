@@ -1,30 +1,30 @@
 package state
 
 import Context
-import GameClientPermissionLayer
-import api.v1.dto.Direction
-import api.v1.dto.NodeRole
-import api.v1.dto.Player
-import api.v1.dto.PlayerType
+import api.v1.dto.*
 import controller.Directions
 import controller.GameController
+import game.engine.Field
 import model.GameConfig
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 
-class MasterMatchState(context: Context, config: GameConfig, gameClientPermissionLayer: GameClientPermissionLayer) : MatchState(context, config,
-    gameClientPermissionLayer
-), GameController {
+class MasterMatchState(context: Context, val playerName: String, val gameName: String, config: GameConfig) : MatchState(context, config),
+    GameController {
     private val scheduler: ScheduledExecutorService = Executors.newScheduledThreadPool(2) // Number of threads
     private val directions = Directions()
     private var sequenceNumber = Long.MIN_VALUE
+    private val masterName: String = playerName
+    private val defaultMasterPlayerId = 0
+    private val field = Field(config, defaultMasterPlayerId)
 
     init {
         field.addPlayer(
             masterPlayer(),
             true
         )
+
         scheduler.scheduleAtFixedRate({
             // Update game state.
             val gameState = field.calculateStep(directions.readAll())
@@ -34,12 +34,30 @@ class MasterMatchState(context: Context, config: GameConfig, gameClientPermissio
                 if (player.role == NodeRole.MASTER) return@forEach
 
                 gameState.address = player.address()
-                controller.state(gameState)
+                context.gameNetController.state(gameState)
             }
 
             // Update master's screen.
             updateGameState(gameState)
         }, 1000, config.stateDelayMs.toLong(), TimeUnit.MILLISECONDS)
+
+        scheduler.scheduleAtFixedRate({
+            // Send game announcements.
+            context.gameNetController.announcement(
+                Announcement(
+                    address = context.gameGroupAddress,
+                    senderId = defaultMasterPlayerId,
+                    games = arrayOf(
+                        Game(
+                            gameName = gameName,
+                            config = config,
+                            canJoin = true,
+                            players = field.players.values.toTypedArray()
+                        )
+                    )
+                )
+            )
+        }, 1000, context.announcementDelay, TimeUnit.MILLISECONDS)
     }
 
     private fun masterPlayer(): Player {
@@ -49,7 +67,7 @@ class MasterMatchState(context: Context, config: GameConfig, gameClientPermissio
             NodeRole.MASTER,
             PlayerType.HUMAN,
             0,
-            config.playerName,
+            masterName,
             0
         )
     }
@@ -61,7 +79,7 @@ class MasterMatchState(context: Context, config: GameConfig, gameClientPermissio
 
     override fun move(direction: Direction) {
         directions.request(
-            config.masterPlayerId,
+            defaultMasterPlayerId,
             direction,
             sequenceNumber++
         )

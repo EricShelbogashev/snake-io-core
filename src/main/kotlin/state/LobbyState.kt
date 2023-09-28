@@ -1,31 +1,38 @@
 package state
 
 import Context
-import GameClientPermissionLayer
 import api.v1.dto.Announcement
 import controller.LobbyController
 import model.GameConfig
 
-class LobbyState internal constructor(
-    private val context: Context, gameClientPermissionLayer: GameClientPermissionLayer
-) : State(context, gameClientPermissionLayer), LobbyController {
+class LobbyState internal constructor(context: Context) : State(context), LobbyController {
+    private var gameAnnouncementListener: ((announcement: Announcement) -> Unit)? = null
 
-    override fun newGame(config: GameConfig) {
-        gameClientPermissionLayer.changeState(
-            MasterMatchState(context, config, gameClientPermissionLayer)
+    init {
+        context.gameNetController.setOnAnnouncementHandler { announcement ->
+            gameAnnouncementListener?.invoke(
+                announcement
+            )
+        }
+    }
+
+    override fun newGame(playerName: String, gameName: String, config: GameConfig) {
+        this.gameAnnouncementListener = null
+        context.gameClientPermissionLayer.changeState(
+            MasterMatchState(context, playerName, gameName, config)
         )
     }
 
-    override fun joinGame(gameName: String) {
-        TODO("low-level sending message")
+    override fun joinGame(playerName: String, gameName: String) {
+        TODO("Not yet implemented")
     }
 
-    override fun watchGame(gameName: String) {
+    override fun watchGame(playerName: String, gameName: String) {
         TODO("Not yet implemented")
     }
 
     override fun setGameAnnouncementListener(action: (announcement: Announcement) -> Unit) {
-        TODO("Not yet implemented")
+        gameAnnouncementListener = action
     }
 
     override fun removeGameAnnouncementListener() {

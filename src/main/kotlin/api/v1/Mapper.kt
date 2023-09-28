@@ -2,10 +2,9 @@ package api.v1
 
 import api.v1.dto.*
 import me.ippolitov.fit.snakes.SnakesProto
-import api.v1.dto.Coords
-import api.v1.dto.Direction
 import me.ippolitov.fit.snakes.SnakesProto.GamePlayer
 import model.GameConfig
+import java.net.InetSocketAddress
 import java.util.function.Function
 
 object Mapper {
@@ -29,12 +28,9 @@ object Mapper {
 
     fun toProtoAnnouncement(announcement: Announcement): SnakesProto.GameMessage.AnnouncementMsg {
         val protoAnnouncementMsgBuilder = SnakesProto.GameMessage.AnnouncementMsg.newBuilder()
-        val gamesBuilderList = protoAnnouncementMsgBuilder.gamesBuilderList
 
-        announcement.games.forEach { game ->
-            val protoGame = toProtoGameBuilder(game)
-            gamesBuilderList.add(protoGame)
-        }
+        val protoGames = announcement.games.map(::toProtoGame)
+        protoAnnouncementMsgBuilder.addAllGames(protoGames)
 
         return protoAnnouncementMsgBuilder.build()
     }
@@ -88,6 +84,10 @@ object Mapper {
             .setStateDelayMs(config.stateDelayMs)
     }
 
+    private fun toProtoGame(game: Game): SnakesProto.GameAnnouncement? {
+        return toProtoGameBuilder(game).build()
+    }
+
     private fun toProtoGameBuilder(game: Game): SnakesProto.GameAnnouncement.Builder {
         val protoPlayers = toProtoGamePlayersBuilder(game.players)
         val protoConfig = toProtoGameConfigBuilder(game.config)
@@ -96,7 +96,7 @@ object Mapper {
             .setPlayers(protoPlayers)
             .setConfig(protoConfig)
             .setCanJoin(game.canJoin)
-            .setGameName(game.config.gameName)
+            .setGameName(game.gameName)
     }
 
     fun toProtoJoin(join: Join): SnakesProto.GameMessage.JoinMsg {
@@ -207,6 +207,130 @@ object Mapper {
                 this.add(protoCoord)
             }
             this
+        }
+    }
+
+    fun toMessage(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Message {
+        val message = if (gameMessage.hasAck()) {
+            toAck(address, gameMessage)
+        } else if (gameMessage.hasAnnouncement()) {
+            toAnnouncement(address, gameMessage)
+        } else if (gameMessage.hasDiscover()) {
+            toDiscover(address, gameMessage)
+        } else if (gameMessage.hasError()) {
+            toError(address, gameMessage)
+        } else if (gameMessage.hasState()) {
+            toGameState(address, gameMessage)
+        } else if (gameMessage.hasJoin()) {
+            toJoin(address, gameMessage)
+        } else if (gameMessage.hasPing()) {
+            toPing(address, gameMessage)
+        } else if (gameMessage.hasRoleChange()) {
+            toRoleChange(address, gameMessage)
+        } else if (gameMessage.hasSteer()) {
+            toSteer(address, gameMessage)
+        } else {
+            return Message(address, gameMessage.senderId)
+        }
+        message.msgSeq = gameMessage.msgSeq
+        return message
+    }
+
+    private fun toSteer(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Steer {
+        return Steer(address, gameMessage.senderId, toDirection(gameMessage.steer.direction))
+    }
+
+    private fun toDirection(direction: SnakesProto.Direction): Direction {
+        return when (direction) {
+            SnakesProto.Direction.UP -> Direction.UP
+            SnakesProto.Direction.RIGHT -> Direction.RIGHT
+            SnakesProto.Direction.DOWN -> Direction.DOWN
+            SnakesProto.Direction.LEFT -> Direction.LEFT
+        }
+    }
+
+    private fun toPing(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Ping {
+        return Ping(address, gameMessage.senderId)
+    }
+
+    private fun toRoleChange(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): RoleChange {
+        return RoleChange(
+            address,
+            gameMessage.senderId,
+            gameMessage.receiverId,
+            toNodeRole(gameMessage.roleChange.senderRole),
+            toNodeRole(gameMessage.roleChange.receiverRole)
+        )
+    }
+
+    private fun toNodeRole(nodeRole: SnakesProto.NodeRole): NodeRole {
+        return when (nodeRole) {
+            SnakesProto.NodeRole.MASTER -> NodeRole.MASTER
+            SnakesProto.NodeRole.DEPUTY -> NodeRole.DEPUTY
+            SnakesProto.NodeRole.NORMAL -> NodeRole.NORMAL
+            SnakesProto.NodeRole.VIEWER -> NodeRole.VIEWER
+        }
+    }
+
+    private fun toJoin(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Discover {
+        return Discover(address, gameMessage.senderId)
+    }
+
+    private fun toGameState(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Discover {
+        return Discover(address, gameMessage.senderId)
+    }
+
+
+    private fun toError(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Discover {
+        return Discover(address, gameMessage.senderId)
+    }
+
+    private fun toDiscover(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Discover {
+        return Discover(address, gameMessage.senderId)
+    }
+
+    private fun toAck(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Ack {
+        return Ack(address, gameMessage.senderId, gameMessage.receiverId)
+    }
+
+    private fun toAnnouncement(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Announcement {
+        return Announcement(address, gameMessage.senderId, toGames(gameMessage.announcement))
+    }
+
+    private fun toGames(announcement: SnakesProto.GameMessage.AnnouncementMsg): Array<Game> {
+        return announcement.gamesList.map { gameAnnouncement: SnakesProto.GameAnnouncement ->
+            Game(
+                gameName = gameAnnouncement.gameName,
+                config = GameConfig(
+                    width = gameAnnouncement.config.width,
+                    height = gameAnnouncement.config.height,
+                    foodStatic = gameAnnouncement.config.foodStatic,
+                    stateDelayMs = gameAnnouncement.config.stateDelayMs
+                ),
+                canJoin = gameAnnouncement.canJoin,
+                players = gameAnnouncement.players.playersList.map { protoGamePlayer ->
+                    toPlayer(protoGamePlayer)
+                }.toTypedArray()
+            )
+        }.toTypedArray()
+    }
+
+    private fun toPlayer(protoGamePlayer: GamePlayer): Player {
+        return Player(
+            ip = protoGamePlayer.ipAddress,
+            port = protoGamePlayer.port,
+            role = toNodeRole(protoGamePlayer.role),
+            type = toPlayerType(protoGamePlayer.type),
+            score = protoGamePlayer.score,
+            name = protoGamePlayer.name,
+            id = protoGamePlayer.id
+        )
+    }
+
+    private fun toPlayerType(type: SnakesProto.PlayerType): PlayerType {
+        return when (type) {
+            SnakesProto.PlayerType.HUMAN -> PlayerType.HUMAN
+            SnakesProto.PlayerType.ROBOT -> PlayerType.ROBOT
         }
     }
 }

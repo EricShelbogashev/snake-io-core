@@ -1,48 +1,66 @@
+import api.v1.controller.GameNetController
 import api.v1.dto.Announcement
 import api.v1.dto.Direction
 import controller.GameController
 import controller.LobbyController
 import model.GameConfig
-import state.*
+import state.HaltState
+import state.LobbyState
+import state.MatchState
+import state.State
 import java.io.Closeable
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.MulticastSocket
+import java.net.NetworkInterface
 
-class GameClientPermissionLayer(address: InetSocketAddress, private val stateListener: (state: State) -> Unit) :
+class GameClientPermissionLayer(
+    gameGroupAddress: InetSocketAddress,
+    private val stateListener: (state: State) -> Unit
+) :
     LobbyController,
     GameController,
     Closeable {
-    var context = Context(
-        MulticastSocket(address),
-        DatagramSocket()
+    private val inputSocket = MulticastSocket(gameGroupAddress)
+    private val commonSocket = DatagramSocket()
+    private var context = Context(
+        inputSocket = inputSocket,
+        commonSocket = commonSocket,
+        gameGroupAddress = gameGroupAddress,
+        gameClientPermissionLayer = this,
+        gameNetController = GameNetController(
+            multicastGroup = gameGroupAddress,
+            recieveSocket = inputSocket,
+            commonSocket = commonSocket,
+            networkInterface = NetworkInterface.getByName("wlan0")
+        )
     )
-    var state: State = LobbyState(context, this)
+    var state: State = LobbyState(context)
 
     fun changeState(state: State) {
         this.state = state
         stateListener(state)
     }
 
-    override fun newGame(config: GameConfig) {
+    override fun newGame(playerName: String, gameName: String, config: GameConfig) {
         if (state !is LobbyState) {
             throw IllegalStateException("not able to start new game not from lobby")
         }
-        (state as LobbyState).newGame(config)
+        (state as LobbyState).newGame(playerName, gameName, config)
     }
 
-    override fun joinGame(gameName: String) {
+    override fun joinGame(playerName: String, gameName: String) {
         if (state !is LobbyState) {
             throw IllegalStateException("not able to join the game not from lobby")
         }
-        (state as LobbyState).joinGame(gameName)
+        (state as LobbyState).joinGame(playerName, gameName)
     }
 
-    override fun watchGame(gameName: String) {
+    override fun watchGame(playerName: String, gameName: String) {
         if (state !is LobbyState) {
             throw IllegalStateException("not able to watch the game not from lobby")
         }
-        (state as LobbyState).watchGame(gameName)
+        (state as LobbyState).watchGame(playerName, gameName)
     }
 
     override fun setGameAnnouncementListener(action: (announcement: Announcement) -> Unit) {
@@ -90,6 +108,6 @@ class GameClientPermissionLayer(address: InetSocketAddress, private val stateLis
     override fun close() {
         context.inputSocket.close()
         context.commonSocket.close()
-        state = HaltState(context, this)
+        state = HaltState(context)
     }
 }

@@ -5,9 +5,9 @@ import java.net.InetSocketAddress
 class RoleChange(
     override var address: InetSocketAddress,
     override var senderId: Int,
+    override var receiverId: Int,
     val senderRole: NodeRole?,
     val receiverRole: NodeRole?,
-    override val receiverId: Int,
 ) : Ack(address, senderId, receiverId) {
     init {
         if (senderRole == null && receiverRole == null) {

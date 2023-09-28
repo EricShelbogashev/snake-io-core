@@ -1,6 +1,8 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import com.google.protobuf.gradle.proto
 import com.google.protobuf.gradle.protobuf
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.dsl.KotlinVersion
 import kotlin.io.path.Path
 
 plugins {
@@ -67,6 +69,14 @@ tasks {
 
 tasks.compileKotlin {
     source("${buildDir.absolutePath}/generated/src/main/java")
+}
+
+kotlin {
+    compilerOptions {
+        apiVersion.set(KotlinVersion.KOTLIN_1_9)
+        jvmTarget.set(JvmTarget.JVM_17)
+        jvmToolchain(17)
+    }
 }
 
 tasks.processResources {
