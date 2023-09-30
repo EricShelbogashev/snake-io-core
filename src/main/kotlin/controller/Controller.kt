@@ -1,3 +1,0 @@
-package controller
-
-interface Controller
