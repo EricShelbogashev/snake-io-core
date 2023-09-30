@@ -1,3 +1,5 @@
+@file:Suppress("CanBeParameter", "unused")
+
 import config.ClientSettings
 import doc.Contract
 import model.GameController

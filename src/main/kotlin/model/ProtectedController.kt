@@ -1,3 +1,5 @@
+@file:Suppress("CanBeParameter")
+
 package model
 
 import config.ClientSettings
@@ -60,11 +62,11 @@ class ProtectedController(
         (holder.state() as LobbyState).setGameAnnouncementsListener(action)
     }
 
-    override fun removeGameAnnouncementsListener() {
+    override fun exit() {
         if (holder.state() !is LobbyState) {
-            throw IllegalStateException("not able to stop watch the announcements not from lobby")
+            throw IllegalStateException("not able to free lobby resources not from lobby")
         }
-        (holder.state() as LobbyState).removeGameAnnouncementsListener()
+        (holder.state() as LobbyState).close()
     }
 
     override fun leaveGame() {

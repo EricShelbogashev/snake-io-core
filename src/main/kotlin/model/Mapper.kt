@@ -1,14 +1,24 @@
+@file:Suppress("RemoveRedundantQualifierName")
+
 package model
 
-import model.api.v1.dto.*
 import me.ippolitov.fit.snakes.SnakesProto
+import me.ippolitov.fit.snakes.SnakesProto.GameMessage
 import me.ippolitov.fit.snakes.SnakesProto.GamePlayer
-import model.api.v1.dto.GameConfig
-import model.api.v1.dto.RoleChange
+import model.api.v1.dto.*
 import java.net.InetSocketAddress
 import java.util.function.Function
 
+/*
+    Не подчиняется контракту Client. При использовании необходимо оборачивать вызовы в try-catch.
+*/
 object Mapper {
+    private fun <M : Message> saturate(message: M, protoMessage: GameMessage): M {
+        message.msgSeq = protoMessage.msgSeq
+        message.receiverId = protoMessage.receiverId
+        return message
+    }
+
     fun toProtoPing(ping: Ping): SnakesProto.GameMessage {
         val protoPing = SnakesProto.GameMessage.PingMsg.newBuilder().build()
         return SnakesProto.GameMessage.newBuilder()
@@ -112,6 +122,7 @@ object Mapper {
             .build()
     }
 
+    @Suppress("RemoveRedundantQualifierName")
     fun toProtoError(error: model.api.v1.dto.Error): SnakesProto.GameMessage.ErrorMsg {
         return SnakesProto.GameMessage.ErrorMsg.newBuilder()
             .setErrorMessage(error.message)
@@ -233,8 +244,7 @@ object Mapper {
         } else {
             return Message(address, gameMessage.senderId)
         }
-        message.msgSeq = gameMessage.msgSeq
-        return message
+        return saturate(message, gameMessage)
     }
 
     private fun toSteer(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Steer {
@@ -273,17 +283,92 @@ object Mapper {
         }
     }
 
-    private fun toJoin(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Discover {
-        return Discover(address, gameMessage.senderId)
+    private fun toJoin(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Join {
+        val protoJoin = gameMessage.join
+        val playerType = toPlayerType(protoJoin.playerType)
+        val nodeRole = toNodeRole(protoJoin.requestedRole)
+
+        return Join(
+            address = address,
+            senderId = gameMessage.senderId,
+            playerName = protoJoin.playerName,
+            gameName = protoJoin.gameName,
+            nodeRole = nodeRole,
+            playerType = playerType
+        )
     }
 
-    private fun toGameState(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Discover {
-        return Discover(address, gameMessage.senderId)
+    private fun toState(protoState: SnakesProto.GameState.Snake.SnakeState): Snake.State {
+        return when (protoState) {
+            SnakesProto.GameState.Snake.SnakeState.ZOMBIE -> Snake.State.ZOMBIE
+            SnakesProto.GameState.Snake.SnakeState.ALIVE -> Snake.State.ALIVE
+        }
     }
 
+    private fun toPoints(pointsList: List<SnakesProto.GameState.Coord>): Array<Coords> {
+        return pointsList.map { coord ->
+            toCoords(coord)
+        }.toTypedArray()
+    }
 
-    private fun toError(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Discover {
-        return Discover(address, gameMessage.senderId)
+    private fun toCoords(protoCord: SnakesProto.GameState.Coord): Coords {
+        return Coords(protoCord.x, protoCord.y)
+    }
+
+    private fun toSnake(protoSnake: SnakesProto.GameState.Snake): Snake {
+        val direction = toDirection(protoSnake.headDirection)
+        val state = toState(protoSnake.state)
+        val points = toPoints(protoSnake.pointsList)
+
+        return Snake(
+            direction = direction,
+            playerId = protoSnake.playerId,
+            state = state,
+            points = points
+        )
+    }
+
+    private fun toPlayers(playersList: List<GamePlayer>): Array<Player> {
+        return playersList.map { protoPlayer ->
+            toPlayer(protoPlayer)
+        }.toTypedArray()
+    }
+
+    private fun toGameState(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): GameState {
+        val protoState = gameMessage.state.state
+        val snakes = protoState.snakesList.map { snake: SnakesProto.GameState.Snake ->
+            toSnake(snake)
+        }.toTypedArray()
+        val players = toPlayers(protoState.players.playersList)
+        val food = toFood(protoState.foodsList)
+
+        return GameState(
+            address = address,
+            senderId = gameMessage.senderId,
+            number = protoState.stateOrder,
+            players = players,
+            food = food,
+            snakes = snakes
+        )
+    }
+
+    private fun toFood(foodsList: List<SnakesProto.GameState.Coord>): Array<Food> {
+        return foodsList.map { protoFood ->
+            toFood(protoFood)
+        }.toTypedArray()
+    }
+
+    private fun toFood(protoFood: SnakesProto.GameState.Coord): Food {
+        return Food(protoFood.x, protoFood.y)
+    }
+
+    private fun toError(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Error {
+        val protoError = gameMessage.error
+        return model.api.v1.dto.Error(
+            address = address,
+            senderId = gameMessage.senderId,
+            message = protoError.errorMessage,
+        )
     }
 
     private fun toDiscover(address: InetSocketAddress, gameMessage: SnakesProto.GameMessage): Discover {
