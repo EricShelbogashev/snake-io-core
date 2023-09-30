@@ -1,9 +1,8 @@
 package model.engine;
 
-import api.v1.dto.Direction
-import api.v1.dto.GameState
-import api.v1.dto.Player
+import model.api.v1.dto.Direction
 import model.api.v1.dto.GameConfig
+import model.api.v1.dto.GameState
 import model.api.v1.dto.Player
 import java.net.InetSocketAddress
 import kotlin.random.Random
@@ -19,11 +18,15 @@ class Field(
     val points: MutableMap<Coords, Int> = hashMapOf()
     val collisionsResolver = CollisionsResolver(this)
 
-    private var poolIds: Int = masterPlayerId + 1
+    private var poolIds: Int = master.id + 1
     private var gameStateNum: Int = 0
 
     fun getId(): Int {
         return poolIds++
+    }
+
+    init {
+        addPlayer(master)
     }
 
     fun calculateStep(directions: Map<Int, Direction>): GameState {
@@ -68,7 +71,7 @@ class Field(
         val step = gameStateNum++
         return GameState(
             address = InetSocketAddress(0),
-            senderId = masterPlayerId,
+            senderId = master.id,
             number = step,
             players = players.values.toTypedArray(),
             food = food.values.toTypedArray(),
@@ -85,7 +88,7 @@ class Field(
         val FAKE_HEAD = Coords(this, 5, 5)
 
         // Выдаем идентификатор
-        player.id = if (master) masterPlayerId else getId()
+        player.id = getId()
         player.score = 0
         players[player.id] = player
         Snake(this, player, FAKE_HEAD)

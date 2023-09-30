@@ -1,11 +1,11 @@
 package model.engine
 
-import api.v1.dto.Direction
+import model.api.v1.dto.Direction
 import org.jetbrains.annotations.Contract
 
 data class Coords(
     val field: Field, override val x: Int, override val y: Int
-): api.v1.dto.Coords(x, y) {
+): model.api.v1.dto.Coords(x, y) {
 
     /**
      * @return  точку, смещенную в тороидальном поле field от текущей на steps влево

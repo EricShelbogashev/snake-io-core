@@ -3,7 +3,7 @@ package model.engine
 class Food(
     field: Field,
     coords: Coords
-) : api.v1.dto.Food(
+) : model.api.v1.dto.Food(
     x = coords.x,
     y = coords.y
 ) {

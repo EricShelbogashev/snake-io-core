@@ -1,15 +1,15 @@
 package model.engine
 
-import api.v1.dto.Direction
-import api.v1.dto.NodeRole
-import api.v1.dto.Player
+import model.api.v1.dto.Direction
+import model.api.v1.dto.NodeRole
+import model.api.v1.dto.Player
 
 @Suppress("JoinDeclarationAndAssignment")
 class Snake(
     field: Field, player: Player, head: Coords
 ) {
     private var _status: Status
-    private val player: Player
+    val player: Player
     val status: Status
         get() {
             return _status
@@ -166,15 +166,5 @@ class Snake(
         fun becomeFoodRandom(): Boolean {
             return randomArray.random()
         }
-    }
-
-    fun toDto(): api.v1.dto.Snake {
-        return api.v1.dto.Snake(
-            direction = direction(),
-            playerId = player.id,
-            state = api.v1.dto.Snake.State.ALIVE, /* Иначе недопустимое состояние.
-                                                     После вызова die() змея должна быть утилизирована. */
-            points = body.toTypedArray()
-        )
     }
 }
