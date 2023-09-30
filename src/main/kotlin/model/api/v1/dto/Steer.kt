@@ -3,8 +3,8 @@ package model.api.v1.dto
 import java.net.InetSocketAddress
 
 class Steer(
-    override var address: InetSocketAddress,
-    override var senderId: Int,
+    address: InetSocketAddress,
+    senderId: Int,
     val direction: Direction,
 ) : Message(address, senderId) {
     override fun toString(): String {

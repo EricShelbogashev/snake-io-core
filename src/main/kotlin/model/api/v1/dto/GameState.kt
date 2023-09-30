@@ -3,8 +3,8 @@ package model.api.v1.dto
 import java.net.InetSocketAddress
 
 class GameState(
-    override var address: InetSocketAddress,
-    override var senderId: Int,
+    address: InetSocketAddress,
+    senderId: Int,
     var number: Int,
     var players: Array<Player>,
     var food: Array<Food>,

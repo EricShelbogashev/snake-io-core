@@ -1,9 +1,10 @@
 package model
 
-import api.v1.dto.*
+import model.api.v1.dto.*
 import me.ippolitov.fit.snakes.SnakesProto
 import me.ippolitov.fit.snakes.SnakesProto.GamePlayer
 import model.api.v1.dto.GameConfig
+import model.api.v1.dto.RoleChange
 import java.net.InetSocketAddress
 import java.util.function.Function
 
@@ -46,11 +47,11 @@ object Mapper {
         return toProtoPlayerBuilder(player).build()
     }
 
-    private fun toProtoPlayerBuilder(player: Player): SnakesProto.GamePlayer.Builder {
+    private fun toProtoPlayerBuilder(player: Player): GamePlayer.Builder {
         val protoNodeRole = toProtoNodeRole(player.role)
         val protoPlayerType = toProtoPlayerType(player.type)
 
-        return SnakesProto.GamePlayer.newBuilder()
+        return GamePlayer.newBuilder()
             .setId(player.id)
             .setName(player.name)
             .setIpAddress(player.ip)
@@ -111,7 +112,7 @@ object Mapper {
             .build()
     }
 
-    fun toProtoError(error: Error): SnakesProto.GameMessage.ErrorMsg {
+    fun toProtoError(error: model.api.v1.dto.Error): SnakesProto.GameMessage.ErrorMsg {
         return SnakesProto.GameMessage.ErrorMsg.newBuilder()
             .setErrorMessage(error.message)
             .build()

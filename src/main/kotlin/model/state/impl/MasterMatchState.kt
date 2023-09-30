@@ -15,10 +15,9 @@ class MasterMatchState(context: Context, val playerName: String, val gameName: S
     MatchState(context, config),
     GameController {
 
-    @Suppress("MayBeConstant")
     private companion object {
-        val USED_THREADS_NUMBER = 2
-        val MASTER_PLAYER_ID = 0
+        const val USED_THREADS_NUMBER = 2
+        const val MASTER_PLAYER_ID = 0
         val MASTER_PLAYER = Player(
             "this machine's ip address is unavailable",
             0,
@@ -31,7 +30,7 @@ class MasterMatchState(context: Context, val playerName: String, val gameName: S
         /*
             Задержка запуска игры после вызова конструктора.
         */
-        val GAME_START_DELAY_MS: Long = 1000
+        const val GAME_START_DELAY_MS: Long = 1000
     }
 
     private val executors = Executors.newScheduledThreadPool(USED_THREADS_NUMBER)

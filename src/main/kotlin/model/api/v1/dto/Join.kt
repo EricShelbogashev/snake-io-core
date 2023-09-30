@@ -3,8 +3,8 @@ package model.api.v1.dto
 import java.net.InetSocketAddress
 
 class Join(
-    override var address: InetSocketAddress,
-    override var senderId: Int,
+    address: InetSocketAddress,
+    senderId: Int,
     val playerName: String,
     val gameName: String,
     val playerType: PlayerType = PlayerType.HUMAN,

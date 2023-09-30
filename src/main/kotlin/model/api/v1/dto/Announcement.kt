@@ -3,8 +3,8 @@ package model.api.v1.dto
 import java.net.InetSocketAddress
 
 class Announcement(
-    override var address: InetSocketAddress,
-    override var senderId: Int,
+    address: InetSocketAddress,
+    senderId: Int,
     val games: Array<Game>
 ) : Message(address, senderId) {
     override fun toString(): String {
