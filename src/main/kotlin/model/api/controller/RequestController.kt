@@ -8,7 +8,6 @@ import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.Error
 
 class RequestController(
     private val socket: DatagramSocket,
@@ -16,16 +15,10 @@ class RequestController(
 ) {
     private var msgSeq = AtomicLong(Long.MIN_VALUE)
     private val multicastSupported: Boolean = networkInterface.supportsMulticast()
-    private val joined = false
 
     private fun send(address: InetSocketAddress, message: GameMessage) {
-        if (address.address.isMulticastAddress) {
-            if (!multicastSupported) {
-                throw IllegalArgumentException("multicast is not allowed for interface ${networkInterface.name}")
-            }
-            if (!joined) {
-                socket.joinGroup(address, networkInterface)
-            }
+        if (address.address.isMulticastAddress && !multicastSupported) {
+            throw IllegalArgumentException("multicast is not allowed for interface ${networkInterface.name}")
         }
         val byteArray = message.toByteArray()
         val packet = DatagramPacket(byteArray, byteArray.size, address)

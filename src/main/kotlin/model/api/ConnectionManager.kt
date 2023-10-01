@@ -9,6 +9,7 @@ import model.api.v1.dto.*
 import model.error.CriticalException
 import java.io.Closeable
 import java.net.DatagramPacket
+import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.MulticastSocket
 import java.net.NetworkInterface
@@ -22,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong
 // Держатель нод.
 class ConnectionManager(
     private val multicastReceiveSocket: MulticastSocket,
+    private val generalSocket: DatagramSocket,
     private val networkInterface: NetworkInterface,
     private val multicastGroup: InetSocketAddress
 ) : Closeable {
@@ -45,7 +47,7 @@ class ConnectionManager(
     private val delayMs = AtomicLong(DEFAULT_DELAY_MS)
 
     // Общее
-    private val requestController: RequestController = RequestController(multicastReceiveSocket, networkInterface)
+    private val requestController: RequestController = RequestController(generalSocket, networkInterface)
     private val sentMessages: MutableMap<Long, Pair<Message, Instant>> = mutableMapOf()
     private val sentMessagesLock = Any()
 
@@ -66,9 +68,12 @@ class ConnectionManager(
         noAnswered.forEach { message ->
             // Обработчик вызывается с фиксированной задеркой, поэтому нет необходимости обновлять время после обхода.
             // Но есть смысл проверить превышение максимально допустимой задержки.
+            println(maxTimeHasPassed.toString() + "  " + now.minusMillis(message.second.toEpochMilli()).toEpochMilli())
             if (message.second.plusMillis(maxTimeHasPassed).isBefore(now)) {
-                nodesHolder.removeNode(message.first.address)
-
+                synchronized(sentMessagesLock) {
+                    sentMessages.remove(message.first.msgSeq)
+                    nodesHolder.removeNode(message.first.address)
+                }
             } else {
                 send(message.first)
             }
@@ -77,6 +82,7 @@ class ConnectionManager(
 
     init {
         this.multicastReceiveSocket.joinGroup(multicastGroup, networkInterface)
+        this.generalSocket.joinGroup(multicastGroup, networkInterface)
 
         // Задача прослушивания сокета, отвечающего за multicast-группу.
         receiveExecutor.execute {
@@ -117,28 +123,33 @@ class ConnectionManager(
 
     // Остальные сообщения реализуются ConnectionManager'ом.
     fun send(message: Message) {
-        when (message) {
-            is Announcement -> requestController.announcement(message)
-            is model.api.v1.dto.Error -> requestController.error(message)
-            is GameState -> requestController.state(message)
-            is Join -> {
-                if (onJoinAccepted == null) {
-                    throw IllegalStateException("onJoinAccepted is not set")
+        try {
+            when (message) {
+                is Announcement -> requestController.announcement(message)
+                is model.api.v1.dto.Error -> requestController.error(message)
+                is GameState -> requestController.state(message)
+                is Join -> {
+                    if (onJoinAccepted == null) {
+                        throw CriticalException("onJoinAccepted is not set")
+                    }
+                    println(message)
+                    requestController.join(message)
                 }
-                requestController.join(message)
-            }
 
-            is RoleChange -> requestController.roleChange(message)
-            is Steer -> requestController.steer(message)
-            is Ack -> throw CriticalException("ack is not supported")
-            is Discover -> throw CriticalException("ack")
-            is Ping -> throw CriticalException("ping message is not supported")
-            else -> throw CriticalException("message is not supported")
-        }
-        synchronized(sentMessagesLock) {
-            if (message !is Announcement) {
-                sentMessages[message.msgSeq] = message to Instant.now()
+                is RoleChange -> requestController.roleChange(message)
+                is Steer -> requestController.steer(message)
+                is Ack -> throw CriticalException("ack is not supported")
+                is Discover -> throw CriticalException("ack")
+                is Ping -> throw CriticalException("ping message is not supported")
+                else -> throw CriticalException("message is not supported")
             }
+            synchronized(sentMessagesLock) {
+                if (message !is Announcement) {
+                    sentMessages[message.msgSeq] = message to Instant.now()
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -339,6 +350,11 @@ class ConnectionManager(
         }
         try {
             this.multicastReceiveSocket.leaveGroup(multicastGroup, networkInterface)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        try {
+            this.generalSocket.leaveGroup(multicastGroup, networkInterface)
         } catch (e: Exception) {
             e.printStackTrace()
         }

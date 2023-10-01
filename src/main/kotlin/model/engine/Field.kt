@@ -23,7 +23,7 @@ class Field(
     }
 
     init {
-        addPlayer(master)
+        addMaster(master)
     }
 
     fun calculateStep(directions: Map<Int, Direction>): GameState {
@@ -43,7 +43,6 @@ class Field(
                 snake.move(direction)
             }
         }
-
         collisionsResolver.resolveAll()
 
         // Спавн еды.
@@ -90,6 +89,13 @@ class Field(
         players[player.id] = player
         Snake(this, player, FAKE_HEAD)
         return player
+    }
+
+    private fun addMaster(player: Player) {
+        val head = Coords(this, config.height / 2, config.width / 2)
+
+        players[player.id] = player
+        Snake(this, player, head)
     }
 }
 

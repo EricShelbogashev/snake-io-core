@@ -18,15 +18,6 @@ class MasterMatchState(context: Context, val playerName: String, val gameName: S
     private companion object {
         const val USED_THREADS_NUMBER = 2
         const val MASTER_PLAYER_ID = 0
-        val MASTER_PLAYER = Player(
-            "this machine's ip address is unavailable",
-            0,
-            NodeRole.MASTER,
-            PlayerType.HUMAN,
-            0,
-            "set me",
-            MASTER_PLAYER_ID
-        )
         /*
             Задержка запуска игры после вызова конструктора.
         */
@@ -34,28 +25,33 @@ class MasterMatchState(context: Context, val playerName: String, val gameName: S
         const val GAME_ANNOUNCEMENT_DELAY_MS: Long = 1000
     }
 
+    private val master = Player(
+        "this machine's ip address is unavailable",
+        0,
+        NodeRole.MASTER,
+        PlayerType.HUMAN,
+        0,
+        playerName,
+        MASTER_PLAYER_ID
+    )
     private val executors = Executors.newScheduledThreadPool(USED_THREADS_NUMBER)
     private val directions: DirectionsHolder
     private val field: Field
     private val requestController: RequestController
     private var sequenceNumber = Long.MIN_VALUE
 
-    //    private var sequenceNumber = Long.MIN_VALUE
-//    private val masterName: String = playerName
-//    private val defaultMasterPlayerId = 0
     init {
         this.requestController = RequestController(
             socket = context.clientSettings.generalSocket,
             networkInterface = context.clientSettings.networkInterface,
         )
-        this.field = Field(config, MASTER_PLAYER)
+        this.field = Field(config, master)
         this.directions = DirectionsHolder()
 
         // Задача на обновление игрового состояния. Начинает работать через секунду после
         executors.scheduleAtFixedRate({
             // Update game state.
             val gameState = field.calculateStep(directions.readAll())
-
             // Send game update to nodes.
             field.players.values.forEach { player ->
                 if (player.role == NodeRole.MASTER) return@forEach
@@ -66,6 +62,7 @@ class MasterMatchState(context: Context, val playerName: String, val gameName: S
 
             // Update master's screen.
             updateGameState(gameState)
+
         }, GAME_START_DELAY_MS, config.stateDelayMs.toLong(), TimeUnit.MILLISECONDS)
 
         executors.scheduleAtFixedRate({
@@ -106,5 +103,5 @@ class MasterMatchState(context: Context, val playerName: String, val gameName: S
     }
 
     override fun gameName(): String = gameName
-    override fun currentPlayer(): Player = MASTER_PLAYER
+    override fun currentPlayer(): Player = master
 }

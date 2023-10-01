@@ -11,6 +11,7 @@ import model.state.StateHolder
 import model.state.impl.LobbyState
 import model.state.impl.MatchState
 import java.io.Closeable
+import java.net.InetSocketAddress
 
 /*
     Внешним образом состояние обновляется только в случае создания контроллера и при вызове close(),
@@ -30,6 +31,7 @@ class ProtectedController(
             stateHolder = this.holder,
             connectionManager = ConnectionManager(
                 clientSettings.multicastReceiveSocket,
+                clientSettings.generalSocket,
                 clientSettings.networkInterface,
                 clientSettings.gameGroupAddress
             )
@@ -49,18 +51,18 @@ class ProtectedController(
         (holder.state() as LobbyState).newGame(playerName, gameName, config)
     }
 
-    override fun joinGame(playerName: String, gameName: String) {
+    override fun joinGame(address: InetSocketAddress, playerName: String, gameName: String) {
         if (holder.state() !is LobbyState) {
             throw IllegalStateException("not able to join the game not from lobby")
         }
-        (holder.state() as LobbyState).joinGame(playerName, gameName)
+        (holder.state() as LobbyState).joinGame(address, playerName, gameName)
     }
 
-    override fun watchGame(playerName: String, gameName: String) {
+    override fun watchGame(address: InetSocketAddress, playerName: String, gameName: String) {
         if (holder.state() !is LobbyState) {
             throw IllegalStateException("not able to watch the game not from lobby")
         }
-        (holder.state() as LobbyState).watchGame(playerName, gameName)
+        (holder.state() as LobbyState).watchGame(address, playerName, gameName)
     }
 
     override fun setGameAnnouncementsListener(action: (announcements: List<Announcement>) -> Unit) {

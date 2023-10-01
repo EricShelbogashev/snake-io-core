@@ -1,9 +1,8 @@
 package model.state.impl
 
 import model.Context
-import model.api.v1.dto.GameConfig
 import model.LobbyController
-import model.api.v1.dto.Announcement
+import model.api.v1.dto.*
 import model.cache.TimebasedCache
 import model.state.State
 import java.net.InetSocketAddress
@@ -15,18 +14,42 @@ class LobbyState(private val context: Context) : State, LobbyController {
     private var announcementsCache = TimebasedCache<InetSocketAddress, Announcement>(TimeUnit.SECONDS.toMillis(3))
     private var announcementsListenTask: Timer? = null
 
+    init {
+        context.connectionManager.setOnJoinAccepted { playerId: Int ->
+            println("ПИЗДАААА $playerId")
+        }
+    }
+
     override fun newGame(playerName: String, gameName: String, config: GameConfig) {
         context.stateHolder.change(
             MasterMatchState(context, playerName, gameName, config)
         )
     }
 
-    override fun joinGame(playerName: String, gameName: String) {
-        TODO("Not yet implemented")
+    override fun joinGame(address: InetSocketAddress, playerName: String, gameName: String) {
+        context.connectionManager.send(
+            Join(
+                address = address,
+                senderId = 0,
+                playerName = playerName,
+                playerType = PlayerType.HUMAN,
+                gameName = gameName,
+                nodeRole = NodeRole.NORMAL
+            )
+        )
     }
 
-    override fun watchGame(playerName: String, gameName: String) {
-        TODO("Not yet implemented")
+    override fun watchGame(address: InetSocketAddress, playerName: String, gameName: String) {
+        context.connectionManager.send(
+            Join(
+                address = address,
+                senderId = 0,
+                playerName = playerName,
+                playerType = PlayerType.HUMAN,
+                gameName = gameName,
+                nodeRole = NodeRole.VIEWER
+            )
+        )
     }
 
     override fun setGameAnnouncementsListener(action: (announcements: List<Announcement>) -> Unit) {

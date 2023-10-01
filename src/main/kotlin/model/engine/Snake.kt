@@ -141,6 +141,10 @@ class Snake(
         }
     }
 
+    override fun toString(): String {
+        return "Snake(player=$player, status=$status, body=$body)"
+    }
+
     private companion object Utils {
         private val randomArray = arrayOf(true, false)
         fun newHead(snake: Snake, direction: Direction): Coords {
