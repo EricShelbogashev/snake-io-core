@@ -3,8 +3,11 @@
 package model
 
 import config.ClientSettings
+import model.api.ConnectionManager
 import model.api.v1.dto.*
-import model.state.*
+import model.state.HaltState
+import model.state.State
+import model.state.StateHolder
 import model.state.impl.LobbyState
 import model.state.impl.MatchState
 import java.io.Closeable
@@ -24,7 +27,12 @@ class ProtectedController(
         this.holder = StateHolder(transitionListener = stateListener)
         this.context = Context(
             clientSettings = clientSettings,
-            stateHolder = this.holder
+            stateHolder = this.holder,
+            connectionManager = ConnectionManager(
+                clientSettings.multicastReceiveSocket,
+                clientSettings.networkInterface,
+                clientSettings.gameGroupAddress
+            )
         )
         initialize()
     }

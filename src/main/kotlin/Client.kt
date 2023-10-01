@@ -14,14 +14,10 @@ class Client(
 ) : Closeable {
     private var protectedController = ProtectedController(settings) { state -> onStateChanged(state) }
 
-    @Contract(
-        "допустимые исключения: IllegalStateException, model.error.IllegalArgumentException, CriticalException"
-    )
+    @Contract("допустимые исключения: IllegalStateException, model.error.IllegalArgumentException, CriticalException")
     fun lobbyController(): LobbyController = protectedController
 
-    @Contract(
-        "допустимые исключения: IllegalStateException, model.error.IllegalArgumentException, CriticalException"
-    )
+    @Contract("допустимые исключения: IllegalStateException, model.error.IllegalArgumentException, CriticalException")
     fun gameController(): GameController = protectedController
 
     override fun close() {

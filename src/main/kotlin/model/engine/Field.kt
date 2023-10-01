@@ -1,9 +1,6 @@
 package model.engine;
 
-import model.api.v1.dto.Direction
-import model.api.v1.dto.GameConfig
-import model.api.v1.dto.GameState
-import model.api.v1.dto.Player
+import model.api.v1.dto.*
 import java.net.InetSocketAddress
 import kotlin.random.Random
 import kotlin.random.nextInt

@@ -15,7 +15,7 @@ import java.util.function.Function
 object Mapper {
     private fun <M : Message> saturate(message: M, protoMessage: GameMessage): M {
         message.msgSeq = protoMessage.msgSeq
-        message.receiverId = protoMessage.receiverId
+        message.receiverId = if (protoMessage.hasReceiverId()) protoMessage.receiverId else -1
         return message
     }
 

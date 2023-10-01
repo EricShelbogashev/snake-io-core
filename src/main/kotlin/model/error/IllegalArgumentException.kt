@@ -3,9 +3,9 @@ package model.error;
 import doc.Contract
 
 class IllegalArgumentException : RuntimeException {
-    constructor(violation: String) : super(message = violation)
+    constructor(violation: String) : super(violation)
 
-    constructor(violations: Array<String>) : super(message = v2m(violations))
+    constructor(violations: Array<String>) : super(v2m(violations))
 
     companion object {
         @Contract("вызывать только из конструктора")

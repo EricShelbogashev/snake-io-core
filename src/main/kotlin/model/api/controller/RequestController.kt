@@ -7,13 +7,14 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.Error
 
 class RequestController(
     private val socket: DatagramSocket,
     private val networkInterface: NetworkInterface
 ) {
-    private var msgSeq: Long = 0
+    private var msgSeq = AtomicLong(Long.MIN_VALUE)
     private val multicastSupported: Boolean = networkInterface.supportsMulticast()
     private val joined = false
 
@@ -32,7 +33,7 @@ class RequestController(
     }
 
     fun ping(ping: Ping) {
-        ping.msgSeq = msgSeq++
+        ping.msgSeq = msgSeq.incrementAndGet()
         val protoPing = Mapper.toProtoPing(ping)
         send(ping.address, protoPing)
     }
@@ -46,7 +47,7 @@ class RequestController(
 
         val message = GameMessage.newBuilder()
             .setSteer(protoSteer)
-            .setMsgSeq(msgSeq++)
+            .setMsgSeq(msgSeq.incrementAndGet())
             .setSenderId(steer.senderId)
             .build()
 
@@ -57,7 +58,7 @@ class RequestController(
         val protoAck = GameMessage.AckMsg.newBuilder().build()
         val message = GameMessage.newBuilder()
             .setAck(protoAck)
-            .setMsgSeq(msgSeq++)
+            .setMsgSeq(msgSeq.incrementAndGet())
             .setSenderId(ack.senderId)
             .setReceiverId(ack.receiverId)
             .build()
@@ -70,7 +71,7 @@ class RequestController(
 
         val message = GameMessage.newBuilder()
             .setAnnouncement(protoAnnouncement)
-            .setMsgSeq(msgSeq++)
+            .setMsgSeq(msgSeq.incrementAndGet())
             .setSenderId(announcement.senderId)
             .build()
 
@@ -82,19 +83,19 @@ class RequestController(
 
         val message = GameMessage.newBuilder()
             .setDiscover(protoDiscover)
-            .setMsgSeq(msgSeq++)
+            .setMsgSeq(msgSeq.incrementAndGet())
             .setSenderId(discover.senderId)
             .build()
 
         send(discover.address, message)
     }
 
-    private fun join(join: Join) {
+    fun join(join: Join) {
         val protoJoin = Mapper.toProtoJoin(join)
 
         val message = GameMessage.newBuilder()
             .setJoin(protoJoin)
-            .setMsgSeq(msgSeq++)
+            .setMsgSeq(msgSeq.incrementAndGet())
             .setSenderId(join.senderId)
             .build()
 
@@ -106,7 +107,7 @@ class RequestController(
 
         val protoMessage = GameMessage.newBuilder()
             .setError(protoError)
-            .setMsgSeq(msgSeq++)
+            .setMsgSeq(msgSeq.incrementAndGet())
             .setSenderId(error.senderId)
             .build()
 
@@ -118,7 +119,7 @@ class RequestController(
 
         val message = GameMessage.newBuilder()
             .setRoleChange(protoRoleChange)
-            .setMsgSeq(msgSeq++)
+            .setMsgSeq(msgSeq.incrementAndGet())
             .setSenderId(roleChange.senderId)
             .setReceiverId(roleChange.receiverId)
             .build()
@@ -131,7 +132,7 @@ class RequestController(
 
         val message = GameMessage.newBuilder()
             .setState(protoState)
-            .setMsgSeq(msgSeq++)
+            .setMsgSeq(msgSeq.incrementAndGet())
             .setSenderId(gameState.senderId)
             .build()
 

@@ -3,7 +3,7 @@ package model.api.v1.dto
 import java.net.InetSocketAddress
 
 open class Message(
-    val address: InetSocketAddress,
+    var address: InetSocketAddress,
     val senderId: Int,
     var receiverId: Int = DEFAULT_RECEIVER_ID,
     var msgSeq: Long = DEFAULT_MESSAGE_SEQUENCE_NUMBER

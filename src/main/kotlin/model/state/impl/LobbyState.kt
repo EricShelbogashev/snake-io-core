@@ -16,8 +16,7 @@ class LobbyState(private val context: Context) : State, LobbyController {
     private var announcementsListenTask: Timer? = null
 
     override fun newGame(playerName: String, gameName: String, config: GameConfig) {
-        removeGameAnnouncementsListener()
-        context.gameClientPermissionLayer.changeState(
+        context.stateHolder.change(
             MasterMatchState(context, playerName, gameName, config)
         )
     }
@@ -31,14 +30,17 @@ class LobbyState(private val context: Context) : State, LobbyController {
     }
 
     override fun setGameAnnouncementsListener(action: (announcements: List<Announcement>) -> Unit) {
-        context.gameNetController.setOnAnnouncementHandler { announcement ->
+        context.connectionManager.setOnAnnouncementHandler { announcement ->
             synchronized(this) {
                 announcementsCache.store(announcement.address, announcement)
             }
         }
         gameAnnouncementListener = action
-        context.gameNetController.startReceive()
         startAnnouncementsListen()
+    }
+
+    override fun exit() {
+        TODO("Not yet implemented")
     }
 
     private fun startAnnouncementsListen() {
@@ -61,15 +63,10 @@ class LobbyState(private val context: Context) : State, LobbyController {
         announcementsListenTask = null
     }
 
-    override fun removeGameAnnouncementsListener() {
-        gameAnnouncementListener = null
-        context.gameNetController.setOnAnnouncementHandler(null)
-        context.gameNetController.endReceive()
-        endAnnouncementsListen()
-    }
-
     override fun close() {
-        TODO("Not yet implemented")
+        gameAnnouncementListener = null
+        context.connectionManager.setOnAnnouncementHandler(null)
+        endAnnouncementsListen()
     }
 
 }
