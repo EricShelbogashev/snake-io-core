@@ -3,13 +3,21 @@ package model.state.impl
 import model.Context
 import model.api.v1.dto.GameConfig
 import model.GameController
+import model.ViewGameController
+import model.api.JoinRequest
 import model.api.v1.dto.GameState
+import model.api.v1.dto.NodeRole
 import model.state.State
+import java.net.InetSocketAddress
 
 abstract class MatchState(
-    private val context: Context, val config: GameConfig
-) : State, GameController {
+    protected val context: Context, val config: GameConfig
+) : State, ViewGameController {
     private var onGameStateChangeListener: ((state: GameState) -> Unit)? = null
+
+    init {
+        context.connectionManager.setOnNodeRemovedHandler(::onNodeRemoved)
+    }
 
     override fun leaveGame() {
         val newState = LobbyState(context)
@@ -24,9 +32,11 @@ abstract class MatchState(
      * Должен вызываться один раз в config.stateDelayMs, если Master
      * и с допустимой задержкой до 0.8*config.stateDelayMs, если нет.
      * */
-    protected open fun updateGameState(state: GameState) {
+    protected fun updateGameState(state: GameState) {
         onGameStateChangeListener?.invoke(state)
     }
+
+    protected abstract fun onNodeRemoved(address: InetSocketAddress, role: NodeRole)
 
     override fun config(): GameConfig {
         return config
@@ -34,5 +44,6 @@ abstract class MatchState(
 
     override fun close() {
         onGameStateChangeListener = null
+        context.connectionManager.setOnNodeRemovedHandler(null)
     }
 }

@@ -15,7 +15,7 @@ class Snake(
             return _status
         }
 
-    val body: ArrayDeque<Coords>
+    var body: ArrayDeque<Coords>
     private val field: Field
 
     init {
@@ -82,6 +82,7 @@ class Snake(
         /* Если столкновение с телом другой змеи, наша змея погибает. */
         if (newHead != otherSnake.head() && newHead != otherSnake.tail()) {
             die()
+            return
         }
 
         /* Столкновение с головой или хвостом может вызвать коллизию, поэтому решение этой проблемы делигируется */

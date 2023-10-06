@@ -13,25 +13,24 @@ class RequestController(
     private val socket: DatagramSocket,
     private val networkInterface: NetworkInterface
 ) {
-    private var msgSeq = AtomicLong(Long.MIN_VALUE)
     private val multicastSupported: Boolean = networkInterface.supportsMulticast()
 
-    private fun send(address: InetSocketAddress, message: GameMessage) {
+    private fun send(address: InetSocketAddress, message: GameMessage) : Long {
         if (address.address.isMulticastAddress && !multicastSupported) {
             throw IllegalArgumentException("multicast is not allowed for interface ${networkInterface.name}")
         }
         val byteArray = message.toByteArray()
         val packet = DatagramPacket(byteArray, byteArray.size, address)
         socket.send(packet)
+        return message.msgSeq
     }
 
-    fun ping(ping: Ping) {
-        ping.msgSeq = msgSeq.incrementAndGet()
+    fun ping(ping: Ping): Long {
         val protoPing = Mapper.toProtoPing(ping)
-        send(ping.address, protoPing)
+        return send(ping.address, protoPing)
     }
 
-    fun steer(steer: Steer) {
+    fun steer(steer: Steer): Long {
         val protoDirection = Mapper.toProtoDirection(steer.direction)
 
         val protoSteer = GameMessage.SteerMsg.newBuilder()
@@ -40,95 +39,95 @@ class RequestController(
 
         val message = GameMessage.newBuilder()
             .setSteer(protoSteer)
-            .setMsgSeq(msgSeq.incrementAndGet())
+            .setMsgSeq(steer.msgSeq)
             .setSenderId(steer.senderId)
             .build()
 
-        send(steer.address, message)
+        return send(steer.address, message)
     }
 
-    fun ack(ack: Ack) {
+    fun ack(ack: Ack): Long {
         val protoAck = GameMessage.AckMsg.newBuilder().build()
         val message = GameMessage.newBuilder()
             .setAck(protoAck)
-            .setMsgSeq(msgSeq.incrementAndGet())
+            .setMsgSeq(ack.msgSeq)
             .setSenderId(ack.senderId)
             .setReceiverId(ack.receiverId)
             .build()
 
-        send(ack.address, message)
+        return send(ack.address, message)
     }
 
-    fun announcement(announcement: Announcement) {
+    fun announcement(announcement: Announcement): Long {
         val protoAnnouncement = Mapper.toProtoAnnouncement(announcement)
 
         val message = GameMessage.newBuilder()
             .setAnnouncement(protoAnnouncement)
-            .setMsgSeq(msgSeq.incrementAndGet())
+            .setMsgSeq(announcement.msgSeq)
             .setSenderId(announcement.senderId)
             .build()
 
-        send(announcement.address, message)
+        return send(announcement.address, message)
     }
 
-    fun discover(discover: Discover) {
+    fun discover(discover: Discover): Long {
         val protoDiscover = GameMessage.DiscoverMsg.newBuilder().build()
 
         val message = GameMessage.newBuilder()
             .setDiscover(protoDiscover)
-            .setMsgSeq(msgSeq.incrementAndGet())
+            .setMsgSeq(discover.msgSeq)
             .setSenderId(discover.senderId)
             .build()
 
-        send(discover.address, message)
+        return send(discover.address, message)
     }
 
-    fun join(join: Join) {
+    fun join(join: Join): Long {
         val protoJoin = Mapper.toProtoJoin(join)
 
         val message = GameMessage.newBuilder()
             .setJoin(protoJoin)
-            .setMsgSeq(msgSeq.incrementAndGet())
+            .setMsgSeq(join.msgSeq)
             .setSenderId(join.senderId)
             .build()
 
-        send(join.address, message)
+        return send(join.address, message)
     }
 
-    fun error(error: model.api.v1.dto.Error) {
+    fun error(error: model.api.v1.dto.Error) : Long {
         val protoError = Mapper.toProtoError(error)
 
         val protoMessage = GameMessage.newBuilder()
             .setError(protoError)
-            .setMsgSeq(msgSeq.incrementAndGet())
+            .setMsgSeq(error.msgSeq)
             .setSenderId(error.senderId)
             .build()
 
-        send(error.address, protoMessage)
+        return send(error.address, protoMessage)
     }
 
-    fun roleChange(roleChange: RoleChange) {
+    fun roleChange(roleChange: RoleChange): Long {
         val protoRoleChange = Mapper.toProtoRoleChange(roleChange)
 
         val message = GameMessage.newBuilder()
             .setRoleChange(protoRoleChange)
-            .setMsgSeq(msgSeq.incrementAndGet())
+            .setMsgSeq(roleChange.msgSeq)
             .setSenderId(roleChange.senderId)
             .setReceiverId(roleChange.receiverId)
             .build()
 
-        send(roleChange.address, message)
+        return send(roleChange.address, message)
     }
 
-    fun state(gameState: GameState) {
+    fun state(gameState: GameState): Long {
         val protoState = Mapper.toProtoState(gameState)
 
         val message = GameMessage.newBuilder()
             .setState(protoState)
-            .setMsgSeq(msgSeq.incrementAndGet())
+            .setMsgSeq(gameState.msgSeq)
             .setSenderId(gameState.senderId)
             .build()
 
-        send(gameState.address, message)
+        return send(gameState.address, message)
     }
 }

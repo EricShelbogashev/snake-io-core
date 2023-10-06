@@ -1,7 +1,14 @@
 package model.api
 
 import model.api.v1.dto.NodeRole
+import mu.KotlinLogging
+import java.io.Closeable
 import java.net.InetSocketAddress
+import java.time.Instant
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 // 1. Если мы получили подтверждение входа, тогда мы подключаемся к ноде master.
 // 1.1. Если мы имеем роль NORMAL или VIEWER, тогда нас не должны волновать другие ноды и достаточно хранить мастера.
@@ -23,25 +30,111 @@ import java.net.InetSocketAddress
 // нового из кеша => необходимо кешировать Game. Так DEPUTY узнавая, что MASTER-нода отвалилась,
 // сразу назначает себя на исполнителя и подгружает из кеша ноды, ожидая, что они теперь будут обращаться к нему, а
 // Normal и View используют кеш, чтобы найти мастера.
-class NodesHolder {
-    private val connectedNodes: MutableMap<InetSocketAddress, NodeRole> = mutableMapOf()
+class NodesHolder(
+    delay: Long,
+    private val onNodeRemovedHandler: ((address: InetSocketAddress, role: NodeRole) -> Unit)
+) : Closeable {
+    private val connectedNodes: MutableMap<InetSocketAddress, Pair<NodeRole, Long>> = mutableMapOf()
     private val connectedNodesLock = Any()
+    private var master: InetSocketAddress? = null
+    private var deputy: InetSocketAddress? = null
+    val size get() = connectedNodes.size
+    val addresses get() = connectedNodes.keys
+    private val scheduledExecutor = Executors.newScheduledThreadPool(SCHEDULED_DEFAULT_THREADS_NUM)
+    private var scheduledFuture: ScheduledFuture<*>
+    private val logger = KotlinLogging.logger { }
+    private val delay: AtomicLong
 
-    fun addNode(address: InetSocketAddress, role: NodeRole) {
+    init {
+        this.delay = AtomicLong(delay)
+    }
+
+    private val removingTask = {
+        val now = System.currentTimeMillis()
+
+        val toDelete: MutableList<InetSocketAddress> = mutableListOf()
         synchronized(connectedNodesLock) {
-            if (!connectedNodes.contains(address)) {
-                connectedNodes[address] = role
+            for (node in connectedNodes) {
+                if (now - node.value.second < delay) continue
+
+                // Удалить узел в связи с превышением времени с последней актуализации.
+                toDelete.add(node.key)
+            }
+        }
+        for (deleted in toDelete) {
+            // Не может быть, чтобы роль была null у известного узла.
+            remove(deleted)
+        }
+    }
+
+    companion object {
+        const val SCHEDULED_DEFAULT_THREADS_NUM = 1
+    }
+
+    init {
+        scheduledFuture =
+            scheduledExecutor.scheduleAtFixedRate(removingTask, delay, delay, TimeUnit.MILLISECONDS)
+    }
+
+    fun put(address: InetSocketAddress, role: NodeRole) {
+        synchronized(connectedNodesLock) {
+            connectedNodes[address] = role to System.currentTimeMillis()
+            if (role == NodeRole.MASTER) {
+                master = address
+            } else if (role == NodeRole.DEPUTY) {
+                deputy = address
             }
         }
     }
 
-    fun removeNode(address: InetSocketAddress) {
+    fun delay(value: Long) {
+        delay.set(value)
+        scheduledFuture.cancel(true)
+        scheduledFuture =
+            scheduledExecutor.scheduleAtFixedRate(removingTask, value, value, TimeUnit.MILLISECONDS)
+    }
+
+    fun remove(address: InetSocketAddress): NodeRole? {
         // По-факту мы общаемся только с теми нодами, с которыми мы общаемся. Обычно других коммуникаций не наблюдается.
         // Мультикаст не стоит учитывать, а все юникасты сохраняем и если нода молчит -> удалена -> сообщения через лямбду об этом.
         // Сообщаем игровому состоянию, потому что именно оно будет ставить статусы зомби на змейку и управлять пользователями
         // в игре.
-        synchronized(connectedNodesLock) {
-            connectedNodes.remove(address)
+
+        return synchronized(connectedNodesLock) {
+            if (master == address) {
+                master = null
+            } else if (deputy == address) {
+                deputy = null
+            }
+            val pair = connectedNodes.remove(address) ?: return null
+            onNodeRemovedHandler(address, pair.first)
+            pair.first
+        }
+    }
+
+    fun actualize(address: InetSocketAddress) {
+        val pair = connectedNodes[address] ?: return
+
+        connectedNodes[address] = pair.first to System.currentTimeMillis()
+    }
+
+    fun get(address: InetSocketAddress): NodeRole? {
+        return synchronized(connectedNodesLock) {
+            connectedNodes[address]?.first
+        }
+    }
+
+    // без синхронизации
+    fun master(): InetSocketAddress? {
+        return synchronized(connectedNodesLock) {
+            master
+        }
+    }
+
+    // без синхронизации
+    fun deputy(): InetSocketAddress? {
+        return synchronized(connectedNodesLock) {
+            deputy
         }
     }
 
@@ -49,5 +142,10 @@ class NodesHolder {
         synchronized(connectedNodesLock) {
             connectedNodes.clear()
         }
+    }
+
+    override fun close() {
+        scheduledExecutor.shutdown()
+        connectedNodes.clear()
     }
 }

@@ -1,6 +1,7 @@
 package model.engine;
 
 import model.api.v1.dto.*
+import mu.KotlinLogging
 import java.net.InetSocketAddress
 import kotlin.random.Random
 import kotlin.random.nextInt
@@ -16,7 +17,8 @@ class Field(
     val collisionsResolver = CollisionsResolver(this)
 
     private var poolIds: Int = master.id + 1
-    private var gameStateNum: Int = 0
+    private var gameStateNum: Int = Int.MIN_VALUE
+    private val logger = KotlinLogging.logger {}
 
     fun getId(): Int {
         return poolIds++
@@ -26,11 +28,12 @@ class Field(
         addMaster(master)
     }
 
+    // Предполагается, что VIEWER отсеивается и здесь нет запросов на управления от таких нод.
     fun calculateStep(directions: Map<Int, Direction>): GameState {
         // Свиг змеек.
         (0..<poolIds).forEach { id ->
             val direction = directions[id]
-            val snake = snakes[id]!!
+            val snake = snakes[id] ?: return@forEach
 
             if (snake.status == Snake.Status.DEAD) {
                 println("Попытка управлять мертвой змеей от пользователя $id.")
@@ -65,23 +68,26 @@ class Field(
         // TODO: просчитать место для спавна игрока
 
         val step = gameStateNum++
+        val sortedPlayers = players.values.sortedWith { a: Player, b: Player -> b.score.compareTo(a.score) }
+
         return GameState(
             address = InetSocketAddress(0),
             senderId = master.id,
             number = step,
-            players = players.values.toTypedArray(),
+            players = sortedPlayers.toTypedArray(),
             food = food.values.toTypedArray(),
             snakes = snakes.map { entry: Map.Entry<Int, Snake> -> entry.value.toDto() }.toTypedArray()
         )
     }
 
     fun addPlayer(player: Player): Player {
+        logger.info { "addPlayer() : player=$player" }
         if (/*TODO: поле не содержит свободный квадрат*/ false) {
             throw IllegalStateException("not able to create player : no free space")
         }
 
         // TODO: предоставить точку
-        val FAKE_HEAD = Coords(this, 5, 5)
+        val FAKE_HEAD = Coords(this, 1, 1)
 
         // Выдаем идентификатор
         player.id = getId()
@@ -89,6 +95,14 @@ class Field(
         players[player.id] = player
         Snake(this, player, FAKE_HEAD)
         return player
+    }
+
+    fun removePlayer(id: Int) {
+        players.remove(id)
+    }
+
+    fun getPlayerByAddress(address: InetSocketAddress): Player? {
+        return players.values.find { player: Player -> player.address == address }
     }
 
     private fun addMaster(player: Player) {

@@ -4,6 +4,7 @@ import model.Context
 import model.LobbyController
 import model.api.v1.dto.*
 import model.cache.TimebasedCache
+import model.state.HaltState
 import model.state.State
 import java.net.InetSocketAddress
 import java.util.*
@@ -15,9 +16,41 @@ class LobbyState(private val context: Context) : State, LobbyController {
     private var announcementsListenTask: Timer? = null
 
     init {
-        context.connectionManager.setOnJoinAccepted { playerId: Int ->
-            println("ПИЗДАААА $playerId")
+        context.connectionManager.setOnJoinAccepted { join: Join, playerId: Int ->
+            val game = getJoinedGameFromAnnouncements(join.address, join.gameName)
+            context.stateHolder.change(
+                when (join.nodeRole) {
+                    NodeRole.NORMAL, NodeRole.DEPUTY -> NormalMatchState(
+                        context = context,
+                        playerId = playerId,
+                        gameName = join.gameName,
+                        config = game.config
+                    )
+                    NodeRole.VIEWER -> ViewMatchState(
+                        context = context,
+                        playerId = playerId,
+                        gameName = join.gameName,
+                        config = game.config
+                    )
+                    else -> { throw IllegalStateException()}
+//                    NodeRole.MASTER -> MasterMatchState(
+//                        context = context,
+//                        playerId = playerId,
+//                        gameName = join.gameName,
+//                        config = game.config
+//                    )
+                }
+            )
         }
+    }
+
+    private fun getJoinedGameFromAnnouncements(address: InetSocketAddress, gameName: String): Game {
+        val load = announcementsCache.load(address)
+            ?: throw IllegalArgumentException("указанный хост не существует или перестал вещать")
+        for (game in load.games) {
+            if (game.gameName == gameName) return game
+        }
+        throw IllegalArgumentException("указанная игра не принадлежит хосту")
     }
 
     override fun newGame(playerName: String, gameName: String, config: GameConfig) {
@@ -63,7 +96,7 @@ class LobbyState(private val context: Context) : State, LobbyController {
     }
 
     override fun exit() {
-        TODO("Not yet implemented")
+        context.stateHolder.change(HaltState)
     }
 
     private fun startAnnouncementsListen() {
@@ -86,10 +119,19 @@ class LobbyState(private val context: Context) : State, LobbyController {
         announcementsListenTask = null
     }
 
-    override fun close() {
+    private fun removeAnnouncementHandler() {
         gameAnnouncementListener = null
         context.connectionManager.setOnAnnouncementHandler(null)
+    }
+
+    private fun removeJoinHandler() {
+        context.connectionManager.setOnJoinAccepted(null)
+    }
+
+    override fun close() {
+        removeAnnouncementHandler()
         endAnnouncementsListen()
+        removeJoinHandler()
     }
 
 }

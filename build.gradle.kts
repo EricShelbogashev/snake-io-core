@@ -21,6 +21,9 @@ repositories {
 }
 
 dependencies {
+    // https://mvnrepository.com/artifact/io.github.microutils/kotlin-logging-jvm
+    implementation("io.github.microutils:kotlin-logging-jvm:2.0.11")
+    implementation("ch.qos.logback:logback-classic:1.2.9")
     implementation("com.google.protobuf:protobuf-kotlin:3.24.3")
     // https://mvnrepository.com/artifact/com.google.protobuf/protobuf-gradle-plugin
     runtimeOnly("com.google.protobuf:protobuf-gradle-plugin:0.9.4")

@@ -11,8 +11,7 @@ class Player(
     var name: String,
     var id: Int
 ) {
-    private val address = InetSocketAddress(ip, port)
-    fun address() = address
+    val address get() = InetSocketAddress(ip, port)
 
     override fun toString(): String {
         return "Player(ip='$ip', port=$port, role=$role, type=$type, score=$score, name='$name', id=$id)"

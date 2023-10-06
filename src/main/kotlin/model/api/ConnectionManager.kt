@@ -7,14 +7,12 @@ import model.Mapper
 import model.api.controller.RequestController
 import model.api.v1.dto.*
 import model.error.CriticalException
+import mu.KotlinLogging
 import java.io.Closeable
-import java.net.DatagramPacket
-import java.net.DatagramSocket
-import java.net.InetSocketAddress
-import java.net.MulticastSocket
-import java.net.NetworkInterface
+import java.net.*
 import java.time.Instant
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -28,6 +26,7 @@ class ConnectionManager(
     private val multicastGroup: InetSocketAddress
 ) : Closeable {
     // Для приема сообщений
+    private val logger = KotlinLogging.logger {}
     private var onAnnouncementHandler: ((announcement: Announcement) -> Unit)? = null
     private var onErrorHandler: ((error: model.api.v1.dto.Error) -> Unit)? = null
     private var onGameStateHandler: ((gameState: GameState) -> Unit)? = null
@@ -37,7 +36,7 @@ class ConnectionManager(
     private var onRoleChangeHandler: ((roleChange: RoleChange) -> Unit)? = null
     private var onSteerHandler: ((steer: Steer) -> Unit)? = null
     private var onOtherHandler: ((message: Message) -> Unit)? = null
-    private var onJoinAccepted: ((playerId: Int) -> Unit)? = null
+    private var onJoinAccepted: ((join: Join, playerId: Int) -> Unit)? = null
     private var onNodeRemovedHandler: ((address: InetSocketAddress, role: NodeRole) -> Unit)? = null
     private var cachedState: Game? = null
     private var cachedStateLock = Any()
@@ -47,19 +46,26 @@ class ConnectionManager(
     private val delayMs = AtomicLong(DEFAULT_DELAY_MS)
 
     // Общее
+    private var msgSeq = AtomicLong(Long.MIN_VALUE)
     private val requestController: RequestController = RequestController(generalSocket, networkInterface)
-    private val sentMessages: MutableMap<Long, Pair<Message, Instant>> = mutableMapOf()
+    private val sentMessages: MutableMap<Long, Pair<Message, Long>> = mutableMapOf()
     private val sentMessagesLock = Any()
 
+    private var lastMessage: Long = 0
+
     // Ноды
-    private val nodesHolder = NodesHolder()
+    private val nodesHolder =
+        NodesHolder((delayMs.get() * MAX_DELAY_COEFFICIENT).toLong()) { address: InetSocketAddress, role: NodeRole ->
+            onNodeRemovedHandler?.invoke(address, role)
+        }
+
     private val connectionWatchTask = {
-        val noAnswered: MutableList<Pair<Message, Instant>> = mutableListOf()
-        val now = Instant.now()
+        val noAnswered: MutableList<Pair<Message, Long>> = mutableListOf()
+        val now = System.currentTimeMillis()
         val minTimeHasPassed = (delayMs.get() * DELAY_UPDATE_COEFFICIENT).toLong()
         synchronized(sentMessagesLock) {
             for (message in sentMessages) {
-                if (message.value.second.plusMillis(minTimeHasPassed).isBefore(now)) {
+                if (now - message.value.second > minTimeHasPassed) {
                     noAnswered.add(message.value)
                 }
             }
@@ -68,17 +74,42 @@ class ConnectionManager(
         noAnswered.forEach { message ->
             // Обработчик вызывается с фиксированной задеркой, поэтому нет необходимости обновлять время после обхода.
             // Но есть смысл проверить превышение максимально допустимой задержки.
-            println(maxTimeHasPassed.toString() + "  " + now.minusMillis(message.second.toEpochMilli()).toEpochMilli())
-            if (message.second.plusMillis(maxTimeHasPassed).isBefore(now)) {
+            sendDirectly(message.first)
+
+            if (now - message.second > maxTimeHasPassed) {
                 synchronized(sentMessagesLock) {
                     sentMessages.remove(message.first.msgSeq)
-                    nodesHolder.removeNode(message.first.address)
+
+//                     Если роль отсутствует, значит заполнение nodeHolder происходило неверно или есть саботирующий код
+//                    val role = nodesHolder.remove(message.first.address)
+//                        ?: throw CriticalException("роль узла, с которым была потеряна связь, не может быть null")
+//
+//                    logger.debug {
+//                        "узел отсоединен : address=${message.first.address}, role=$role"
+//                    }
+//                    onNodeRemovedHandler?.invoke(message.first.address, role)
                 }
-            } else {
-                send(message.first)
             }
         }
     }
+
+    private val pingTask = {
+        val now = System.currentTimeMillis()
+        if (now - lastMessage > delayMs.get()) {
+            lastMessage = now
+            for (address in nodesHolder.addresses) {
+                requestController.ping(
+                    Ping(
+                        address,
+                        0
+                    )
+                )
+            }
+        }
+    }
+
+    private var scheduleConnectionWatchTask: ScheduledFuture<*>
+    private var schedulePingTask: ScheduledFuture<*>
 
     init {
         this.multicastReceiveSocket.joinGroup(multicastGroup, networkInterface)
@@ -88,7 +119,7 @@ class ConnectionManager(
         receiveExecutor.execute {
             while (true) {
                 val gameMessage = try {
-                    recieve()
+                    recieve(generalSocket)
                 } catch (e: Throwable) {
                     e.printStackTrace()
                     continue
@@ -96,18 +127,40 @@ class ConnectionManager(
                 dispatch(gameMessage)
             }
         }
-
+        // Задача прослушивания сокета, отвечающего за остальные сообщения.
+        receiveExecutor.execute {
+            while (true) {
+                val gameMessage = try {
+                    recieve(multicastReceiveSocket)
+                } catch (e: Throwable) {
+                    e.printStackTrace()
+                    continue
+                }
+                dispatch(gameMessage)
+            }
+        }
         // Задача, контролирующая подключенные ноды. По умолчанию предполагается,
         // что все ноды, с которыми происходит общение, подключены (таким образом, если они отключаются, происходит
         // уведомление об этом.
-        scheduleConnectionWatchTask()
+        scheduleConnectionWatchTask =
+            scheduleConnectionWatchTask((DELAY_UPDATE_COEFFICIENT * delayMs.get()).toLong())
+        schedulePingTask = schedulePingTask((DELAY_UPDATE_COEFFICIENT * delayMs.get()).toLong())
     }
 
-    private fun scheduleConnectionWatchTask() {
-        scheduledExecutor.scheduleAtFixedRate(
+    private fun scheduleConnectionWatchTask(delay: Long): ScheduledFuture<*> {
+        return scheduledExecutor.scheduleAtFixedRate(
             connectionWatchTask,
-            0,
-            (DELAY_UPDATE_COEFFICIENT * delayMs.get()).toLong(),
+            delay,
+            delay,
+            TimeUnit.MILLISECONDS
+        )
+    }
+
+    private fun schedulePingTask(delay: Long): ScheduledFuture<*> {
+        return scheduledExecutor.scheduleAtFixedRate(
+            pingTask,
+            delay,
+            delay,
             TimeUnit.MILLISECONDS
         )
     }
@@ -115,7 +168,7 @@ class ConnectionManager(
     companion object {
         const val DEFAULT_DELAY_MS = 1000L
         const val DEFAULT_PACKET_LENGTH = 4 * 1024
-        const val RECEIVE_DEFAULT_THREADS_NUM = 1
+        const val RECEIVE_DEFAULT_THREADS_NUM = 2
         const val SCHEDULED_DEFAULT_THREADS_NUM = 1
         const val MAX_DELAY_COEFFICIENT: Double = 0.8
         const val DELAY_UPDATE_COEFFICIENT: Double = 0.095
@@ -123,29 +176,16 @@ class ConnectionManager(
 
     // Остальные сообщения реализуются ConnectionManager'ом.
     fun send(message: Message) {
-        try {
-            when (message) {
-                is Announcement -> requestController.announcement(message)
-                is model.api.v1.dto.Error -> requestController.error(message)
-                is GameState -> requestController.state(message)
-                is Join -> {
-                    if (onJoinAccepted == null) {
-                        throw CriticalException("onJoinAccepted is not set")
-                    }
-                    println(message)
-                    requestController.join(message)
-                }
+        logger.debug { "send() : message=$message" }
 
-                is RoleChange -> requestController.roleChange(message)
-                is Steer -> requestController.steer(message)
-                is Ack -> throw CriticalException("ack is not supported")
-                is Discover -> throw CriticalException("ack")
-                is Ping -> throw CriticalException("ping message is not supported")
-                else -> throw CriticalException("message is not supported")
+        try {
+            if (message.msgSeq == Message.DEFAULT_MESSAGE_SEQUENCE_NUMBER) {
+                message.msgSeq = msgSeq.incrementAndGet()
             }
+            val msgSeq = sendDirectly(message)
             synchronized(sentMessagesLock) {
                 if (message !is Announcement) {
-                    sentMessages[message.msgSeq] = message to Instant.now()
+                    sentMessages[msgSeq] = message to Instant.now().toEpochMilli()
                 }
             }
         } catch (e: Exception) {
@@ -153,28 +193,74 @@ class ConnectionManager(
         }
     }
 
+    private fun sendDirectly(message: Message): Long {
+        return when (message) {
+            is Announcement -> {
+                // Подстраиваемся под время задержки
+                val del = message.games.maxOfOrNull { game -> game.config.stateDelayMs }
+                if (del != null) setStateDelayMs(del.toLong())
+                requestController.announcement(message)
+            }
+
+            is model.api.v1.dto.Error -> requestController.error(message)
+            is GameState -> requestController.state(message)
+            is Join -> {
+                if (onJoinAccepted == null) {
+                    throw CriticalException("onJoinAccepted is not set")
+                }
+                requestController.join(message)
+
+            }
+
+            is RoleChange -> requestController.roleChange(message)
+            is Steer -> requestController.steer(message)
+            is Ack -> throw CriticalException("ack is not supported")
+            is Discover -> throw CriticalException("ack")
+            is Ping -> throw CriticalException("ping message is not supported")
+            else -> throw CriticalException("message is not supported")
+        }
+    }
+
     private fun dispatch(gameMessage: Message) {
         try {
             when (gameMessage) {
-                is Announcement -> {
-                    (onAnnouncementHandler ?: onOtherHandler)?.invoke(gameMessage)
-                }
+                is Announcement -> (onAnnouncementHandler ?: onOtherHandler)?.invoke(gameMessage)
 
                 is model.api.v1.dto.Error -> (onErrorHandler ?: onOtherHandler)?.invoke(gameMessage)
-                is GameState -> (onGameStateHandler ?: onOtherHandler)?.invoke(gameMessage)
+                is GameState -> {
+                    if (onGameStateHandler == null) return
+
+                    Ack(
+                        address = gameMessage.address,
+                        senderId = playerId.get(),
+                        receiverId = gameMessage.senderId,
+                        msgSeq = gameMessage.msgSeq
+                    )
+
+                    // Насытим мастера его адресом
+                    gameMessage.master().ip = gameMessage.address.hostName
+                    gameMessage.master().port = gameMessage.address.port
+
+                    nodesHolder.actualize(gameMessage.address)
+                    logger.error { gameMessage }
+                    (onGameStateHandler ?: onOtherHandler)?.invoke(gameMessage)
+                }
+
                 is Join -> {
                     val joinRequest = JoinRequest(
                         join = gameMessage,
                         acceptAction = { player ->
                             requestController.ack(
                                 Ack(
-                                    address = player.address(),
+                                    address = player.address,
                                     senderId = playerId.get(),
-                                    receiverId = player.id
+                                    receiverId = player.id,
+                                    msgSeq = gameMessage.msgSeq
                                 )
                             )
+
                             // Если добавили нового игрока в игру.
-                            nodesHolder.addNode(player.address(), player.role)
+                            nodesHolder.put(player.address, player.role)
                         },
                         declineAction = {}
                     )
@@ -188,7 +274,18 @@ class ConnectionManager(
                     (onRoleChangeHandler ?: onOtherHandler)?.invoke(gameMessage)
                 }
 
-                is Steer -> (onSteerHandler ?: onOtherHandler)?.invoke(gameMessage)
+                is Steer -> {
+                    if (onSteerHandler == null) return
+
+                    nodesHolder.actualize(gameMessage.address)
+                    // Если сообщение получено от ноды, не учавствующей в игровом процессе.
+                    val nodeRole = nodesHolder.get(gameMessage.address) ?: return
+                    // Если зритель пытается управлять змеей (хотя у него нет на это прав, *даже если это его змея).
+                    // * - к примеру, если MASTER покинул игру и вернулся.
+                    if (nodeRole == NodeRole.VIEWER) return
+                    (onSteerHandler ?: onOtherHandler)?.invoke(gameMessage)
+                }
+
                 is Ack -> handleAck(gameMessage)
                 is Discover -> handleDiscover(gameMessage)
                 is Ping -> handlePing(gameMessage)
@@ -199,12 +296,13 @@ class ConnectionManager(
                 }
             }
         } finally {
-            if (gameMessage !is Ack && gameMessage !is Discover && gameMessage !is Announcement) {
+            if (gameMessage !is Ack && gameMessage !is Discover && gameMessage !is Announcement && gameMessage !is Ping && gameMessage !is GameState) {
                 requestController.ack(
                     Ack(
                         address = gameMessage.address,
                         senderId = playerId.get(),
-                        receiverId = gameMessage.senderId
+                        receiverId = gameMessage.senderId,
+                        msgSeq = gameMessage.msgSeq
                     )
                 )
             }
@@ -244,7 +342,7 @@ class ConnectionManager(
                     if (player.role == NodeRole.DEPUTY) {
                         continue
                     }
-                    nodesHolder.addNode(player.address(), player.role)
+                    nodesHolder.put(player.address, player.role)
                 }
             }
         }
@@ -257,9 +355,12 @@ class ConnectionManager(
             Ack(
                 address = ping.address,
                 senderId = playerId.get(),
-                receiverId = ping.senderId
+                receiverId = ping.senderId,
+                msgSeq = ping.msgSeq
             )
         )
+
+        nodesHolder.actualize(ping.address)
     }
 
     private fun handleAck(ack: Ack) {
@@ -268,9 +369,9 @@ class ConnectionManager(
         }
 
         if (message.first is Join) {
-            onJoinAccepted?.invoke(message.first.receiverId)
+            onJoinAccepted?.invoke(message.first as Join, ack.receiverId)
             // Если успешно подключились к игре.
-            nodesHolder.addNode(ack.address, NodeRole.MASTER)
+            nodesHolder.put(ack.address, NodeRole.MASTER)
         }
     }
 
@@ -284,10 +385,10 @@ class ConnectionManager(
         )
     }
 
-    private fun recieve(): Message {
+    private fun recieve(socket: DatagramSocket): Message {
         val buffer = ByteArray(DEFAULT_PACKET_LENGTH)
         val packet = DatagramPacket(buffer, buffer.size)
-        multicastReceiveSocket.receive(packet)
+        socket.receive(packet)
 
         val parsed = SnakesProto.GameMessage.parseFrom(buffer.copyOf(packet.length))
         return Mapper.toMessage(InetSocketAddress(packet.address, packet.port), parsed)
@@ -298,7 +399,14 @@ class ConnectionManager(
     }
 
     fun setStateDelayMs(stateDelayMs: Long) {
-        delayMs.set(stateDelayMs)
+        val delay = (MAX_DELAY_COEFFICIENT * stateDelayMs).toLong()
+        nodesHolder.delay(delay)
+        delayMs.set(delay)
+
+        schedulePingTask.cancel(true)
+        scheduleConnectionWatchTask.cancel(true)
+        schedulePingTask = schedulePingTask(delay)
+        scheduleConnectionWatchTask = scheduleConnectionWatchTask(delay)
     }
 
     fun setOnOtherHandler(onOtherHandler: ((message: Message) -> Unit)?) {
@@ -309,31 +417,44 @@ class ConnectionManager(
         this.onNodeRemovedHandler = onNodeRemovedHandler
     }
 
-    fun setOnJoinAccepted(onJoinAccepted: ((playerId: Int) -> Unit)?) {
+    fun setOnJoinAccepted(onJoinAccepted: ((join: Join, playerId: Int) -> Unit)?) {
         this.onJoinAccepted = onJoinAccepted
     }
 
+    fun setOnJoinRequestHandler(onJoinRequestHandler: ((joinRequest: JoinRequest) -> Unit)?) {
+        logger.debug { "setOnJoinRequestHandler()" }
+
+        this.onJoinRequestHandler = onJoinRequestHandler
+    }
+
     fun setOnAnnouncementHandler(onAnnouncementHandler: ((announcement: Announcement) -> Unit)?) {
+        logger.debug { "setOnAnnouncementHandler()" }
+
+        this.nodesHolder.clearNodes()
         this.onAnnouncementHandler = onAnnouncementHandler
     }
 
     fun setOnErrorHandler(onErrorHandler: ((error: model.api.v1.dto.Error) -> Unit)?) {
+        logger.debug { "setOnErrorHandler()" }
+
         this.onErrorHandler = onErrorHandler
     }
 
     fun setOnGameStateHandler(onGameStateHandler: ((gameState: GameState) -> Unit)?) {
+        logger.debug { "setOnGameStateHandler()" }
+
         this.onGameStateHandler = onGameStateHandler
     }
 
-//    fun setOnJoinHandler(onJoinHandler: ((join: Join) -> Unit)?) {
-//        this.onJoinHandler = onJoinHandler
-//    }
-
     fun setOnRoleChangeHandler(onRoleChangeHandler: ((roleChange: RoleChange) -> Unit)?) {
+        logger.debug { "setOnRoleChangeHandler()" }
+
         this.onRoleChangeHandler = onRoleChangeHandler
     }
 
     fun setOnSteerHandler(onSteerHandler: ((steer: Steer) -> Unit)?) {
+        logger.debug { "setOnSteerHandler()" }
+
         this.onSteerHandler = onSteerHandler
     }
 
@@ -360,7 +481,20 @@ class ConnectionManager(
         }
     }
 
+    private fun closeHandlers() {
+        setOnOtherHandler(null)
+        setOnNodeRemovedHandler(null)
+        setOnJoinAccepted(null)
+        setOnAnnouncementHandler(null)
+        setOnErrorHandler(null)
+        setOnGameStateHandler(null)
+        setOnRoleChangeHandler(null)
+        setOnSteerHandler(null)
+    }
+
     override fun close() {
         endReceive()
+        nodesHolder.close()
+        closeHandlers()
     }
 }

@@ -4,12 +4,15 @@ package model
 
 import config.ClientSettings
 import model.api.ConnectionManager
+import model.api.JoinRequest
 import model.api.v1.dto.*
 import model.state.HaltState
 import model.state.State
 import model.state.StateHolder
 import model.state.impl.LobbyState
 import model.state.impl.MatchState
+import model.state.impl.NormalMatchState
+import model.state.impl.ViewMatchState
 import java.io.Closeable
 import java.net.InetSocketAddress
 
@@ -104,7 +107,10 @@ class ProtectedController(
         if (holder.state() !is MatchState) {
             throw IllegalStateException("not able to move snake not from game process")
         }
-        return (holder.state() as MatchState).move(direction)
+        if (holder.state() !is GameController) {
+            throw IllegalStateException("not able to move snake in VIEWER mode")
+        }
+        return (holder.state() as GameController).move(direction)
     }
 
     override fun gameName(): String {
