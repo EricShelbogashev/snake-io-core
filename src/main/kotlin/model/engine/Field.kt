@@ -1,4 +1,4 @@
-package model.engine;
+package model.engine
 
 import model.api.v1.dto.*
 import mu.KotlinLogging
@@ -6,30 +6,25 @@ import java.net.InetSocketAddress
 import kotlin.random.Random
 import kotlin.random.nextInt
 
-class Field {
+class Field(
+    val config: GameConfig,
+    val master: Player
+) {
     val players: MutableMap<Int, Player> = hashMapOf()
     val snakes: MutableMap<Int, Snake> = hashMapOf()
     val food: MutableMap<Coords, Food> = hashMapOf()
     val points: MutableMap<Coords, Int> = hashMapOf()
     val collisionsResolver = CollisionsResolver(this)
-    val config: GameConfig
-    val master: Player
-
-    private var poolIds: Int
+    private var poolIds: Int = master.id + 1
     private var gameStateNum: Int = Int.MIN_VALUE
     private val logger = KotlinLogging.logger {}
 
-    constructor(config: GameConfig, master: Player) {
-        this.config = config
-        this.master = master
-        this.poolIds = master.id + 1
+    init {
         addMaster(master)
     }
 
-    constructor(config: GameConfig, master: Player, gameState: GameState) {
-        this.config = config
-        this.master = master
-        this.poolIds = (gameState.players.maxOfOrNull { selector -> selector.id } ?: master.id) + 1
+    constructor(config: GameConfig, master: Player, gameState: GameState) : this(config, master) {
+        poolIds = (gameState.players.maxOfOrNull { selector -> selector.id } ?: master.id) + 1
 
         gameState.players.forEach { player ->
             val role = if (player.id == master.id) {
@@ -49,15 +44,14 @@ class Field {
         }
 
         gameState.snakes.forEach { snake ->
-            // Игровое состояние всегда включает в себя действующих игроков
             snakes[snake.playerId] = Snake(
                 field = this,
                 playerId = snake.playerId,
-                body = snake.points.map { coords -> Coords(this, coords.x, coords.y) }.toTypedArray(),
+                body = snake.points.map { coords -> Coords(this, coords.x, coords.y) }.toTypedArray()
             )
         }
 
-        this.gameStateNum = gameState.number + 1
+        gameStateNum = gameState.number + 1
         gameState.food.forEach { food ->
             val coords = Coords(this, food.x, food.y)
             this.food[coords] = Food(this, coords)
@@ -68,15 +62,31 @@ class Field {
         return poolIds++
     }
 
-    // Предполагается, что VIEWER отсеивается и здесь нет запросов на управления от таких нод.
     fun calculateStep(directions: Map<Int, Direction>): GameState {
-        // Свиг змеек.
-        (0..<poolIds).forEach { id ->
+        moveSnakes(directions)
+        collisionsResolver.resolveAll()
+        spawnFood()
+
+        val step = gameStateNum++
+        val sortedPlayers = players.values.sortedByDescending { it.score }
+
+        return GameState(
+            address = InetSocketAddress(0),
+            senderId = master.id,
+            number = step,
+            players = sortedPlayers.toTypedArray(),
+            food = food.values.toTypedArray(),
+            snakes = snakes.values.map { it.toDto() }.toTypedArray()
+        )
+    }
+
+    private fun moveSnakes(directions: Map<Int, Direction>) {
+        (0 until poolIds).forEach { id ->
             val direction = directions[id]
             val snake = snakes[id] ?: return@forEach
 
             if (snake.status == Snake.Status.DEAD) {
-                println("Попытка управлять мертвой змеей от пользователя $id.")
+                logger.warn("Attempt to control a dead snake by user $id.")
                 return@forEach
             }
 
@@ -86,46 +96,34 @@ class Field {
                 snake.move(direction)
             }
         }
-        collisionsResolver.resolveAll()
+    }
 
-        // Спавн еды.
+    private fun spawnFood() {
         val diff = players.size + config.foodStatic - food.size
         if (diff > 0) {
-            for (i in 1..diff) {
+            repeat(diff) {
                 Food(
                     this, Coords(
                         this,
-                        x = Random.nextInt(0..<config.width),
-                        y = Random.nextInt(0..<config.height)
+                        x = Random.nextInt(0 until config.width),
+                        y = Random.nextInt(0 until config.height)
                     )
                 )
             }
         }
-        // TODO: просчитать место для спавна игрока
-
-        val step = gameStateNum++
-        val sortedPlayers = players.values.sortedWith { a: Player, b: Player -> b.score.compareTo(a.score) }
-
-        return GameState(
-            address = InetSocketAddress(0),
-            senderId = master.id,
-            number = step,
-            players = sortedPlayers.toTypedArray(),
-            food = food.values.toTypedArray(),
-            snakes = snakes.map { entry: Map.Entry<Int, Snake> -> entry.value.toDto() }.toTypedArray()
-        )
+        // TODO: Calculate spawn points for players
     }
 
     fun addPlayer(player: Player): Player {
         logger.info { "addPlayer() : player=$player" }
-        if (/*TODO: поле не содержит свободный квадрат*/ false) {
-            throw IllegalStateException("not able to create player : no free space")
+        if (/*TODO: Field doesn't have free squares*/ false) {
+            throw IllegalStateException("Unable to create player: no free space")
         }
 
-        // TODO: предоставить точку
+        // TODO: Provide a point
         val FAKE_HEAD = Coords(this, 1, 1)
 
-        // Выдаем идентификатор
+        // Assign an identifier
         player.id = getId()
         player.score = 0
         players[player.id] = player
@@ -138,7 +136,7 @@ class Field {
     }
 
     fun getPlayerByAddress(address: InetSocketAddress): Player? {
-        return players.values.find { player: Player -> player.address == address }
+        return players.values.find { it.address == address }
     }
 
     private fun addMaster(player: Player) {
@@ -148,4 +146,3 @@ class Field {
         Snake(this, player.id, head)
     }
 }
-

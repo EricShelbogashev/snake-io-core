@@ -2,7 +2,6 @@ package model.engine
 
 import model.api.v1.dto.Direction
 import model.api.v1.dto.NodeRole
-import model.api.v1.dto.Player
 
 class Snake{
     private var _status: Status

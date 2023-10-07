@@ -1,19 +1,15 @@
 package model.engine
 
 class Food(
-    field: Field,
-    coords: Coords
-) : model.api.v1.dto.Food(
-    x = coords.x,
-    y = coords.y
-) {
-    private val field: Field
+    private val field: Field,
     private var coords: Coords?
+) : model.api.v1.dto.Food(coords?.x ?: 0, coords?.y ?: 0) {
 
     init {
-        this.field = field
-        this.coords = coords
+        coords?.let { initializeFood(it) }
+    }
 
+    private fun initializeFood(coords: Coords) {
         if (!field.points.containsKey(coords)) {
             field.points[coords] = -1
             field.food[coords] = this
@@ -22,16 +18,16 @@ class Food(
 
     fun eat() {
         assert(coords != null) {
-            throw IllegalStateException("food is already eaten")
+            throw IllegalStateException("Food is already eaten")
         }
         field.food.remove(coords)
         field.points.remove(coords)
         coords = null
     }
 
-    fun coords(): Coords {
+    fun getCoords(): Coords {
         assert(coords != null) {
-            throw IllegalStateException("food is already eaten")
+            throw IllegalStateException("Food is already eaten")
         }
         return coords!!
     }

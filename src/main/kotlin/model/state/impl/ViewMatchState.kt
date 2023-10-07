@@ -16,7 +16,6 @@ open class ViewMatchState(
     val gameName: String,
     config: GameConfig
 ) : MatchState(context, config) {
-
     private companion object {
         const val USED_THREADS_NUMBER = 1
     }
@@ -35,29 +34,14 @@ open class ViewMatchState(
                 me = player
             }
             when (player.role) {
-                NodeRole.MASTER -> {
-                    master = player
-                }
-
-                NodeRole.DEPUTY -> {
-                    deputy = player
-                }
-
+                NodeRole.MASTER -> master = player
+                NodeRole.DEPUTY -> deputy = player
                 else -> {}
             }
         }
-        logger.debug { gameState.players.toString() }
-        logger.debug { master }
-        logger.debug { deputy }
-        logger.debug { me }
         this.gameState = gameState
         initialized = true
         updateGameState(gameState)
-    }
-
-    override fun leaveGame() {
-        // TODO: сообщить об уходе
-        super.leaveGame()
     }
 
     protected open fun onRoleChanged(address: InetSocketAddress, role: NodeRole) {
@@ -74,7 +58,6 @@ open class ViewMatchState(
         }
     }
 
-    // Предполагается, что мастер отвалился
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
         logger.info("ViewMatchState::onNodeRemoved () address=$address, role=$role")
         if (role != NodeRole.MASTER) {

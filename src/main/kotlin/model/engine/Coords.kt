@@ -4,49 +4,32 @@ import model.api.v1.dto.Direction
 import org.jetbrains.annotations.Contract
 
 data class Coords(
-    val field: Field, override val x: Int, override val y: Int
-): model.api.v1.dto.Coords(x, y) {
-
-    /**
-     * @return  точку, смещенную в тороидальном поле field от текущей на steps влево
-     */
+    val field: Field,
+    override val x: Int,
+    override val y: Int
+) : model.api.v1.dto.Coords(x, y) {
     @Contract("steps must be positive")
     fun left(steps: Int = 1): Coords {
-        var x1 = x - steps
-        if (x1 < 0) {
-            x1 += field.config.width
-        }
-        return Coords(field, x1, y)
+        val newX = (x - steps + field.config.width) % field.config.width
+        return Coords(field, newX, y)
     }
 
-    /**
-     * @return  точку, смещенную в тороидальном поле field от текущей на steps вправо
-     */
     @Contract("steps must be positive")
     fun right(steps: Int = 1): Coords {
-        val x1 = (x + steps) % field.config.width
-        return Coords(field, x1, y)
+        val newX = (x + steps) % field.config.width
+        return Coords(field, newX, y)
     }
 
-    /**
-     * @return  точку, смещенную в тороидальном поле field от текущей на steps вверх
-     */
     @Contract("steps must be positive")
     fun up(steps: Int = 1): Coords {
-        var y1 = y - steps
-        if (y1 < 0) {
-            y1 += field.config.height
-        }
-        return Coords(field, x, y1)
+        val newY = (y - steps + field.config.height) % field.config.height
+        return Coords(field, x, newY)
     }
 
-    /**
-     * @return  точку, смещенную в тороидальном поле field от текущей на steps вниз
-     */
     @Contract("steps must be positive")
     fun down(steps: Int = 1): Coords {
-        val y1 = (y + steps) % field.config.height
-        return Coords(field, x, y1)
+        val newY = (y + steps) % field.config.height
+        return Coords(field, x, newY)
     }
 
     fun to(direction: Direction): Coords {
@@ -58,23 +41,15 @@ data class Coords(
         }
     }
 
-    /**
-     * @return  все соседние точки для текущей (не по диагонали)
-     */
     fun nearest(): Array<Coords> {
         return arrayOf(up(), right(), down(), left())
     }
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
-        if (javaClass != other?.javaClass) return false
+        if (other !is Coords) return false
 
-        other as Coords
-
-        if (x != other.x) return false
-        if (y != other.y) return false
-
-        return true
+        return x == other.x && y == other.y
     }
 
     override fun hashCode(): Int {

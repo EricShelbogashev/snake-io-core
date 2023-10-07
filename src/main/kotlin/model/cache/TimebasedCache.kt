@@ -2,51 +2,70 @@ package model.cache
 
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
-class TimebasedCache<K, V>(private val millis: Long = TimeUnit.MINUTES.toMillis(1)) {
+class TimebasedCache<K, V>(private val cacheDurationMillis: Long = TimeUnit.MINUTES.toMillis(1)) {
     private val data = mutableMapOf<K, Pair<V, Instant>>()
+    private val lock = ReentrantLock()
     private var lastInvalidate: Instant = Instant.now()
 
     @Synchronized
     fun store(key: K, value: V) {
         val now = Instant.now()
         val item = value to now
-        data[key] = item
 
-        if (lastInvalidate.plusMillis(millis).isBefore(now)) {
-            invalidateAll()
-            lastInvalidate = now
+        lock.withLock {
+            data[key] = item
+
+            if (shouldInvalidateCache(now)) {
+                invalidateAll(now)
+                lastInvalidate = now
+            }
         }
     }
 
-    @Synchronized
-    fun size() = data.size
+    fun size(): Int {
+        return data.size
+    }
 
     @Synchronized
     fun load(key: K): V? {
-        val res = data[key] ?: return null
-        if (res.second.plusMillis(millis).isBefore(Instant.now())) {
-            data.remove(key)
+        val cacheEntry = data[key] ?: return null
+        val (cachedValue, entryInstant) = cacheEntry
+
+        if (shouldInvalidateCache(Instant.now(), entryInstant)) {
+            lock.withLock {
+                data.remove(key)
+            }
+            return null
         }
-        return res.first
+
+        return cachedValue
     }
 
     @Synchronized
     fun toList(): List<V> {
         val now = Instant.now()
-        if (lastInvalidate.plusMillis(millis).isBefore(now)) {
-            invalidateAll()
+        if (shouldInvalidateCache(now)) {
+            invalidateAll(now)
             lastInvalidate = now
         }
-        return data.values.map {
-            return@map it.first
-        }
+        return data.values.map { it.first }
     }
 
-    private fun invalidateAll() {
-        val array = data.keys.toList()
-        for (key in array) {
-            load(key)
+    private fun shouldInvalidateCache(now: Instant, entryInstant: Instant? = null): Boolean {
+        return entryInstant?.plusMillis(cacheDurationMillis)?.isBefore(now) == true
+    }
+
+    private fun invalidateAll(now: Instant) {
+        val keysToInvalidate = data.keys.toList()
+        for (key in keysToInvalidate) {
+            if (shouldInvalidateCache(now, data[key]?.second)) {
+                lock.withLock {
+                    data.remove(key)
+                }
+            }
         }
     }
 }
