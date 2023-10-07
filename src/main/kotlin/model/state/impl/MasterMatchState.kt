@@ -6,52 +6,47 @@ import model.Context
 import model.DirectionsHolder
 import model.GameController
 import model.api.JoinRequest
-import model.api.controller.RequestController
 import model.api.v1.dto.*
 import model.engine.Field
 import model.error.CriticalException
 import mu.KotlinLogging
+import org.w3c.dom.Node
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
-import kotlin.Error
 
-class MasterMatchState(context: Context, val playerName: String, val gameName: String, config: GameConfig) :
-    MatchState(context, config),
-    GameController {
+class MasterMatchState : MatchState, GameController {
+    private val playerName: String
+    private val gameName: String
+    private var deputy: Player?
 
-    private companion object {
-        const val USED_THREADS_NUMBER = 2
-        const val MASTER_PLAYER_ID = 0
-
-        /*
-            Задержка запуска игры после вызова конструктора.
-        */
-        const val GAME_START_DELAY_MS: Long = 1000
-        const val GAME_ANNOUNCEMENT_DELAY_MS: Long = 1000
-    }
-
-    private val master = Player(
-        "this machine's ip address is unavailable",
-        0,
-        NodeRole.MASTER,
-        PlayerType.HUMAN,
-        0,
-        playerName,
-        MASTER_PLAYER_ID
-    )
-    private val executors = Executors.newScheduledThreadPool(USED_THREADS_NUMBER)
-    private val directions: DirectionsHolder
-    private val field: Field
-    private val fieldLock = Any()
-    private var sequenceNumber = Long.MIN_VALUE
-    private val logger = KotlinLogging.logger {}
-
-    init {
+    constructor(context: Context, playerName: String, gameName: String, config: GameConfig) : super(context, config) {
+        this.playerName = playerName
+        this.gameName = gameName
+        this.master = Player(
+            "this machine's ip address is unavailable",
+            0,
+            NodeRole.MASTER,
+            PlayerType.HUMAN,
+            0,
+            playerName,
+            MASTER_PLAYER_ID
+        )
+        this.field = Field(config, master)
+        this.deputy = null
         context.connectionManager.setOnJoinRequestHandler(::joinRequest)
         context.connectionManager.setOnSteerHandler(::directionRequest)
-        this.field = Field(config, master)
         this.directions = DirectionsHolder()
+//        context.connectionManager.setOnRoleChangeHandler { address: InetSocketAddress, role: NodeRole ->
+//            if (role == NodeRole.DEPUTY) {
+//                val player = field.getPlayerByAddress(address)
+//                    ?: throw CriticalException(
+//                        "если игрока нет в MasterMatchState, значит обработчик удаления должен" +
+//                                " был уже отработать и удаленный узел не мог учавствовать в смене ролей"
+//                    )
+//                player.role = NodeRole.DEPUTY
+//            }
+//        }
 
         // Задача на обновление игрового состояния. Начинает работать через секунду после
         executors.scheduleAtFixedRate({
@@ -100,6 +95,38 @@ class MasterMatchState(context: Context, val playerName: String, val gameName: S
         }, 1000, GAME_ANNOUNCEMENT_DELAY_MS, TimeUnit.MILLISECONDS)
     }
 
+    constructor(
+        context: Context,
+        playerName: String,
+        gameName: String,
+        config: GameConfig,
+        gameState: GameState,
+        newMaster: Player
+    ) : this(context, playerName, gameName, config) {
+        field = Field(config, newMaster, gameState)
+        master = newMaster
+
+    }
+
+    private companion object {
+        const val USED_THREADS_NUMBER = 2
+        const val MASTER_PLAYER_ID = 0
+
+        /*
+            Задержка запуска игры после вызова конструктора.
+        */
+        const val GAME_START_DELAY_MS: Long = 1000
+        const val GAME_ANNOUNCEMENT_DELAY_MS: Long = 1000
+    }
+
+    private var master: Player
+    private val executors = Executors.newScheduledThreadPool(USED_THREADS_NUMBER)
+    private val directions: DirectionsHolder
+    private var field: Field
+    private val fieldLock = Any()
+    private var sequenceNumber = Long.MIN_VALUE
+    private val logger = KotlinLogging.logger {}
+
     private fun directionRequest(steer: Steer) {
         directions.request(
             steer.senderId,
@@ -116,21 +143,32 @@ class MasterMatchState(context: Context, val playerName: String, val gameName: S
             throw CriticalException("")
         }
 
+        if (joinRequest.join.nodeRole == NodeRole.VIEWER) {
+            return
+        }
+
+        val role = if (deputy == null) {
+            NodeRole.DEPUTY
+        } else NodeRole.NORMAL
+
         var player = Player(
             ip = join.address.hostName,
             port = join.address.port,
-            role = join.nodeRole,
+            role = role,
             type = join.playerType,
             score = -1,
             name = join.playerName,
             id = -1
         )
 
-        if (player.role != NodeRole.VIEWER) {
-            synchronized(fieldLock) {
-                player = field.addPlayer(player)
-            }
+        if (role == NodeRole.DEPUTY) {
+            deputy = player
         }
+
+        synchronized(fieldLock) {
+            player = field.addPlayer(player)
+        }
+
         joinRequest.accept(player)
     }
 
@@ -140,21 +178,42 @@ class MasterMatchState(context: Context, val playerName: String, val gameName: S
     }
 
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
+        logger.info("RESTORE_PROCESS", "MasterMatchState::onNodeRemoved () address=$address, role=$role")
+
         val player = field.getPlayerByAddress(address)
             ?: throw CriticalException("игрок не может быть null, так как контроллер гарантирует, что отключаться будут лишь ноды, учавствующие в игре")
+        logger.info { "----------------------------------${address}----${player.id}-------------------------------------" }
         field.removePlayer(player.id)
+
+        if (role == NodeRole.DEPUTY) {
+            for (player in field.players.values) {
+                if (player.role != NodeRole.MASTER) {
+                    context.connectionManager.send(
+                        RoleChange(
+                            player.address,
+                            master.id,
+                            player.id,
+                            NodeRole.MASTER,
+                            NodeRole.DEPUTY,
+                        )
+                    )
+                    player.role = NodeRole.DEPUTY
+                    deputy = player
+                    return
+                }
+            }
+        }
     }
 
     override fun close() {
         context.connectionManager.setOnJoinRequestHandler(null)
-        context.connectionManager.setOnNodeRemovedHandler(null)
         executors.shutdown()
         super.close()
     }
 
     override fun move(direction: Direction) {
         directions.request(
-            MASTER_PLAYER_ID,
+            master.id,
             direction,
             sequenceNumber++
         )

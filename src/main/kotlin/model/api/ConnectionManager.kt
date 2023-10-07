@@ -33,7 +33,7 @@ class ConnectionManager(
 
     //    private var onJoinHandler: ((join: Join) -> Unit)? = null
     private var onJoinRequestHandler: ((request: JoinRequest) -> Unit)? = null
-    private var onRoleChangeHandler: ((roleChange: RoleChange) -> Unit)? = null
+    private var onRoleChangeHandler: ((address: InetSocketAddress, role: NodeRole) -> Unit)? = null
     private var onSteerHandler: ((steer: Steer) -> Unit)? = null
     private var onOtherHandler: ((message: Message) -> Unit)? = null
     private var onJoinAccepted: ((join: Join, playerId: Int) -> Unit)? = null
@@ -56,8 +56,27 @@ class ConnectionManager(
     // Ноды
     private val nodesHolder =
         NodesHolder((delayMs.get() * MAX_DELAY_COEFFICIENT).toLong()) { address: InetSocketAddress, role: NodeRole ->
+            logger.info("узел удален : address=$address, role=$role, onNodeRemovedHandler is${if (onNodeRemovedHandler == null) "" else " not"} null")
             onNodeRemovedHandler?.invoke(address, role)
+            nodeRemoveHandle(role)
         }
+
+    private fun nodeRemoveHandle(role: NodeRole) {
+        if (role == NodeRole.MASTER) {
+            for (player in cachedState!!.players) {
+                // Мастер покинул игру, следовательно игнорируем.
+                if (player.role == NodeRole.MASTER) {
+                    continue
+                }
+                // Если среди нод были мы, игнорируем. Нельзя хранить информацию о нашей ноде среди других.
+                if (player.role == NodeRole.DEPUTY) {
+                    continue
+                }
+                nodesHolder.put(player.address, player.role)
+            }
+            logger.error { nodesHolder.addresses }
+        }
+    }
 
     private val connectionWatchTask = {
         val noAnswered: MutableList<Pair<Message, Long>> = mutableListOf()
@@ -147,6 +166,48 @@ class ConnectionManager(
         schedulePingTask = schedulePingTask((DELAY_UPDATE_COEFFICIENT * delayMs.get()).toLong())
     }
 
+    // Если к нам (хосту игры) подключилась нода, нужно проверить, стоит ли ее сделать заместителем.
+//    private fun onNonMasterConnected(player: Player) {
+//        if (nodesHolder.deputy() != null) {
+//            return
+//        }
+//        val message = RoleChange(
+//            player.address,
+//            -1,
+//            player.id,
+//            NodeRole.MASTER,
+//            NodeRole.DEPUTY
+//        )
+//        requestController.roleChange(message)
+//        if (onRoleChangeHandler == null) {
+//            throw IllegalStateException("в роли MASTER необходимо установить обработчик смены ролей")
+//        }
+//        logger.error("Смена ролей =${NodeRole.DEPUTY}")
+//        onRoleChangeHandler?.invoke(player.address, NodeRole.DEPUTY)
+//    }
+
+//     Необходимо проверить, не отключился ли узел с ролью Deputy или Master
+//    private fun onDisconnected(role: NodeRole) {
+//        if (role == NodeRole.DEPUTY) {
+//            // Заменяем заместителя.
+//            val address = nodesHolder.addresses.random()
+//            val message = RoleChange(
+//                address,
+//                -1,
+//                -1,
+//                NodeRole.MASTER,
+//                NodeRole.DEPUTY
+//            )
+//            requestController.roleChange(message)
+//            onRoleChangeHandler?.invoke(address, NodeRole.DEPUTY)
+//        } else if (role == NodeRole.MASTER) {
+//            // Заменяем мастера.
+//            val deputy = nodesHolder.deputy() ?: return
+//            nodesHolder.put(deputy, NodeRole.DEPUTY)
+//        }
+//        logger.error("Смена ролей =${role}")
+//    }
+
     private fun scheduleConnectionWatchTask(delay: Long): ScheduledFuture<*> {
         return scheduledExecutor.scheduleAtFixedRate(
             connectionWatchTask,
@@ -203,16 +264,26 @@ class ConnectionManager(
             }
 
             is model.api.v1.dto.Error -> requestController.error(message)
-            is GameState -> requestController.state(message)
+            is GameState -> {
+                if (!nodesHolder.contains(message.address)) {
+                    logger.info("отправлено сообщение на несуществующий узел, узел добавлен в список отслеживаемых")
+                    nodesHolder.put(message.address, NodeRole.NORMAL)
+                }
+                requestController.state(message)
+            }
             is Join -> {
                 if (onJoinAccepted == null) {
                     throw CriticalException("onJoinAccepted is not set")
                 }
                 requestController.join(message)
-
             }
 
-            is RoleChange -> requestController.roleChange(message)
+            is RoleChange -> {
+                if (message.receiverRole != null) {
+                    nodesHolder.put(message.address, message.receiverRole)
+                }
+                requestController.roleChange(message)
+            }
             is Steer -> requestController.steer(message)
             is Ack -> throw CriticalException("ack is not supported")
             is Discover -> throw CriticalException("ack")
@@ -242,7 +313,6 @@ class ConnectionManager(
                     gameMessage.master().port = gameMessage.address.port
 
                     nodesHolder.actualize(gameMessage.address)
-                    logger.error { gameMessage }
                     (onGameStateHandler ?: onOtherHandler)?.invoke(gameMessage)
                 }
 
@@ -271,7 +341,8 @@ class ConnectionManager(
 
                 is RoleChange -> {
                     handleRoleChange(gameMessage)
-                    (onRoleChangeHandler ?: onOtherHandler)?.invoke(gameMessage)
+                    gameMessage.receiverRole?.let { onRoleChangeHandler?.invoke(InetSocketAddress(0), it) }
+                    onOtherHandler?.invoke(gameMessage)
                 }
 
                 is Steer -> {
@@ -368,8 +439,9 @@ class ConnectionManager(
             sentMessages.remove(ack.msgSeq) ?: return
         }
 
-        if (message.first is Join) {
-            onJoinAccepted?.invoke(message.first as Join, ack.receiverId)
+        val join = message.first
+        if (join is Join) {
+            onJoinAccepted?.invoke(join, ack.receiverId)
             // Если успешно подключились к игре.
             nodesHolder.put(ack.address, NodeRole.MASTER)
         }
@@ -446,7 +518,7 @@ class ConnectionManager(
         this.onGameStateHandler = onGameStateHandler
     }
 
-    fun setOnRoleChangeHandler(onRoleChangeHandler: ((roleChange: RoleChange) -> Unit)?) {
+    fun setOnRoleChangeHandler(onRoleChangeHandler: ((address: InetSocketAddress, role: NodeRole) -> Unit)?) {
         logger.debug { "setOnRoleChangeHandler()" }
 
         this.onRoleChangeHandler = onRoleChangeHandler

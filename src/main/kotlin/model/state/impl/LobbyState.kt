@@ -23,6 +23,7 @@ class LobbyState(private val context: Context) : State, LobbyController {
                     NodeRole.NORMAL, NodeRole.DEPUTY -> NormalMatchState(
                         context = context,
                         playerId = playerId,
+                        playerName=join.playerName,
                         gameName = join.gameName,
                         config = game.config
                     )

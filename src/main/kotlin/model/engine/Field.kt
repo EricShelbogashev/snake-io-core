@@ -6,26 +6,66 @@ import java.net.InetSocketAddress
 import kotlin.random.Random
 import kotlin.random.nextInt
 
-class Field(
-    val config: GameConfig,
-    private val master: Player
-) {
+class Field {
     val players: MutableMap<Int, Player> = hashMapOf()
     val snakes: MutableMap<Int, Snake> = hashMapOf()
     val food: MutableMap<Coords, Food> = hashMapOf()
     val points: MutableMap<Coords, Int> = hashMapOf()
     val collisionsResolver = CollisionsResolver(this)
+    val config: GameConfig
+    val master: Player
 
-    private var poolIds: Int = master.id + 1
+    private var poolIds: Int
     private var gameStateNum: Int = Int.MIN_VALUE
     private val logger = KotlinLogging.logger {}
 
-    fun getId(): Int {
-        return poolIds++
+    constructor(config: GameConfig, master: Player) {
+        this.config = config
+        this.master = master
+        this.poolIds = master.id + 1
+        addMaster(master)
     }
 
-    init {
-        addMaster(master)
+    constructor(config: GameConfig, master: Player, gameState: GameState) {
+        this.config = config
+        this.master = master
+        this.poolIds = (gameState.players.maxOfOrNull { selector -> selector.id } ?: master.id) + 1
+
+        gameState.players.forEach { player ->
+            val role = if (player.id == master.id) {
+                NodeRole.MASTER
+            } else {
+                NodeRole.NORMAL
+            }
+            players[player.id] = Player(
+                ip = player.ip,
+                port = player.port,
+                role = role,
+                type = player.type,
+                score = player.score,
+                name = player.name,
+                id = player.id
+            )
+        }
+
+        gameState.snakes.forEach { snake ->
+            // Игровое состояние всегда включает в себя действующих игроков
+            snakes[snake.playerId] = Snake(
+                field = this,
+                playerId = snake.playerId,
+                body = snake.points.map { coords -> Coords(this, coords.x, coords.y) }.toTypedArray(),
+            )
+        }
+
+        this.gameStateNum = gameState.number + 1
+        gameState.food.forEach { food ->
+            val coords = Coords(this, food.x, food.y)
+            this.food[coords] = Food(this, coords)
+        }
+    }
+
+    fun getId(): Int {
+        return poolIds++
     }
 
     // Предполагается, что VIEWER отсеивается и здесь нет запросов на управления от таких нод.
@@ -52,17 +92,13 @@ class Field(
         val diff = players.size + config.foodStatic - food.size
         if (diff > 0) {
             for (i in 1..diff) {
-                val foodObj = Food(
+                Food(
                     this, Coords(
                         this,
                         x = Random.nextInt(0..<config.width),
                         y = Random.nextInt(0..<config.height)
                     )
                 )
-                if (!points.containsKey(foodObj.coords())) {
-                    points[foodObj.coords()] = -1
-                    food[foodObj.coords()] = foodObj
-                }
             }
         }
         // TODO: просчитать место для спавна игрока
@@ -93,7 +129,7 @@ class Field(
         player.id = getId()
         player.score = 0
         players[player.id] = player
-        Snake(this, player, FAKE_HEAD)
+        Snake(this, player.id, FAKE_HEAD)
         return player
     }
 
@@ -109,7 +145,7 @@ class Field(
         val head = Coords(this, config.height / 2, config.width / 2)
 
         players[player.id] = player
-        Snake(this, player, head)
+        Snake(this, player.id, head)
     }
 }
 

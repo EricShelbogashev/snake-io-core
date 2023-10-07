@@ -20,7 +20,7 @@ data class StateHolder(
     */
     @Contract("state обязаны быть объектами, никогда не передадавшимися в функцию change(state: State)")
     fun change(state: State) {
-        this.state.close()
+//        this.state.close()
         this.state = state
         transitionListener(state)
     }

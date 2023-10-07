@@ -112,6 +112,10 @@ class NodesHolder(
         }
     }
 
+    fun contains(address: InetSocketAddress): Boolean {
+        return connectedNodes.containsKey(address)
+    }
+
     fun actualize(address: InetSocketAddress) {
         val pair = connectedNodes[address] ?: return
 

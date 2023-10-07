@@ -13,6 +13,11 @@ class Food(
     init {
         this.field = field
         this.coords = coords
+
+        if (!field.points.containsKey(coords)) {
+            field.points[coords] = -1
+            field.food[coords] = this
+        }
     }
 
     fun eat() {

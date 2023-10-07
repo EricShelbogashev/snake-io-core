@@ -4,12 +4,9 @@ import model.api.v1.dto.Direction
 import model.api.v1.dto.NodeRole
 import model.api.v1.dto.Player
 
-@Suppress("JoinDeclarationAndAssignment")
-class Snake(
-    field: Field, player: Player, head: Coords
-) {
+class Snake{
     private var _status: Status
-    val player: Player
+    val playerId: Int
     val status: Status
         get() {
             return _status
@@ -18,17 +15,26 @@ class Snake(
     var body: ArrayDeque<Coords>
     private val field: Field
 
-    init {
+    constructor(field: Field, playerId: Int, head: Coords) {
         this.body = ArrayDeque(2)
         this.field = field
-        this.player = player
+        this.playerId = playerId
         this._status = Status.ALIVE
 
         // Body initiation
         this.body.add(head)
         val tailCell = head.nearest().random()
         this.body.add(tailCell)
-        field.snakes[player.id] = this
+        field.snakes[this.playerId] = this
+    }
+
+    constructor(field: Field, playerId: Int, body: Array<Coords>) {
+        this.body = ArrayDeque(body.size)
+        this.body.addAll(body)
+        this.field = field
+        this.playerId = playerId
+        this._status = Status.ALIVE
+        field.snakes[playerId] = this
     }
 
     enum class Status {
@@ -52,7 +58,7 @@ class Snake(
 
         // Змея двигается без изменений
         if (!field.points.containsKey(newHead)) {
-            field.points[newHead] = player.id
+            field.points[newHead] = playerId
             field.points.remove(body.last())
             body.addFirst(newHead)
             body.removeLast()
@@ -66,8 +72,9 @@ class Snake(
             val food = field.food[newHead]!!
             food.eat()
             body.addFirst(newHead)
-            field.points[newHead] = player.id
-            player.score += 1
+            field.points[newHead] = playerId
+            val player = field.players[playerId]
+            player?.score = body.size - 2
             return
         }
 
@@ -110,11 +117,12 @@ class Snake(
         }
         body.clear()
         _status = Status.DEAD
-        field.snakes.remove(player.id)
+        field.snakes.remove(playerId)
 
         // Изменение статуса игрока на зрителя. Данное состояние не участвует ни в каких вычислениях, поэтому
         // необходимо удалить игрока при обнаружении этого статуса во время прочтения состояния игры.
-        player.role = NodeRole.VIEWER
+        val player = field.players[playerId]
+        player?.role = NodeRole.VIEWER
     }
 
     fun direction(): Direction {
@@ -143,7 +151,7 @@ class Snake(
     }
 
     override fun toString(): String {
-        return "Snake(player=$player, status=$status, body=$body)"
+        return "Snake(player=$playerId, status=$status, body=$body)"
     }
 
     private companion object Utils {

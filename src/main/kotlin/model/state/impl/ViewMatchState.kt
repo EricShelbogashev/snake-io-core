@@ -30,10 +30,12 @@ open class ViewMatchState(
     protected lateinit var master: Player
     protected lateinit var me: Player
     private var initialized = false
+    protected var gameState: GameState? = null
 
     init {
         context.connectionManager.setOnGameStateHandler(::gameStateHandle)
         context.connectionManager.setStateDelayMs(config.stateDelayMs.toLong())
+        context.connectionManager.setOnRoleChangeHandler(::onRoleChanged)
     }
 
     private fun gameStateHandle(gameState: GameState) {
@@ -54,6 +56,7 @@ open class ViewMatchState(
             }
         }
         initialized = true
+        this.gameState = gameState
         updateGameState(gameState)
     }
 
@@ -62,8 +65,26 @@ open class ViewMatchState(
         super.leaveGame()
     }
 
+    protected open fun onRoleChanged(address: InetSocketAddress, role: NodeRole) {
+        if (role == NodeRole.MASTER) {
+            if (gameState == null) {
+                throw IllegalStateException("смена ролей произошла до получения информации об игровом состоянии, невозможно произвести смену ролей")
+            }
+            val found = gameState!!.players.find { player ->
+                player.address == address
+            } ?: throw IllegalStateException("если игрока нет, значит смены ролей произойти не могло")
+
+            found.role = NodeRole.MASTER
+            master = found
+        }
+    }
+
     // Предполагается, что мастер отвалился
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
+        logger.info("RESTORE_PROCESS", "ViewMatchState::onNodeRemoved () address=$address, role=$role")
+        if (role != NodeRole.MASTER) {
+            return
+        }
         if (deputy != null) {
             master = deputy as Player
         } else {
@@ -75,6 +96,7 @@ open class ViewMatchState(
         logger.debug { "ViewMatchState::close ()" }
         executors.shutdownNow()
         context.connectionManager.setOnGameStateHandler(null)
+        context.connectionManager.setOnNodeRemovedHandler(null)
         super.close()
     }
 
