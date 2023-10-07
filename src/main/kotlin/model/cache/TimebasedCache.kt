@@ -7,31 +7,31 @@ class TimebasedCache<K, V>(private val millis: Long = TimeUnit.MINUTES.toMillis(
     private val data = mutableMapOf<K, Pair<V, Instant>>()
     private var lastInvalidate: Instant = Instant.now()
 
+    @Synchronized
     fun store(key: K, value: V) {
         val now = Instant.now()
         val item = value to now
-        synchronized(data[key] ?: this) {
-            data[key] = item
+        data[key] = item
 
-            if (lastInvalidate.plusMillis(millis).isBefore(now)) {
-                invalidateAll()
-                lastInvalidate = now
-            }
+        if (lastInvalidate.plusMillis(millis).isBefore(now)) {
+            invalidateAll()
+            lastInvalidate = now
         }
     }
 
+    @Synchronized
     fun size() = data.size
 
+    @Synchronized
     fun load(key: K): V? {
         val res = data[key] ?: return null
-        synchronized(res) {
-            if (res.second.plusMillis(millis).isBefore(Instant.now())) {
-                data.remove(key)
-            }
+        if (res.second.plusMillis(millis).isBefore(Instant.now())) {
+            data.remove(key)
         }
         return res.first
     }
 
+    @Synchronized
     fun toList(): List<V> {
         val now = Instant.now()
         if (lastInvalidate.plusMillis(millis).isBefore(now)) {
@@ -44,7 +44,8 @@ class TimebasedCache<K, V>(private val millis: Long = TimeUnit.MINUTES.toMillis(
     }
 
     private fun invalidateAll() {
-        for (key in data.keys) {
+        val array = data.keys.toList()
+        for (key in array) {
             load(key)
         }
     }

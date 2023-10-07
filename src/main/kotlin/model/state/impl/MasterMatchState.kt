@@ -10,7 +10,6 @@ import model.api.v1.dto.*
 import model.engine.Field
 import model.error.CriticalException
 import mu.KotlinLogging
-import org.w3c.dom.Node
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -105,7 +104,6 @@ class MasterMatchState : MatchState, GameController {
     ) : this(context, playerName, gameName, config) {
         field = Field(config, newMaster, gameState)
         master = newMaster
-
     }
 
     private companion object {
@@ -178,14 +176,13 @@ class MasterMatchState : MatchState, GameController {
     }
 
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
-        logger.info("RESTORE_PROCESS", "MasterMatchState::onNodeRemoved () address=$address, role=$role")
+        logger.info("MasterMatchState::onNodeRemoved () address=$address, role=$role")
 
         val player = field.getPlayerByAddress(address)
-            ?: throw CriticalException("игрок не может быть null, так как контроллер гарантирует, что отключаться будут лишь ноды, учавствующие в игре")
-        logger.info { "----------------------------------${address}----${player.id}-------------------------------------" }
+            ?: return
         field.removePlayer(player.id)
 
-        if (role == NodeRole.DEPUTY) {
+        if (deputy == null || role == NodeRole.DEPUTY) {
             for (player in field.players.values) {
                 if (player.role != NodeRole.MASTER) {
                     context.connectionManager.send(

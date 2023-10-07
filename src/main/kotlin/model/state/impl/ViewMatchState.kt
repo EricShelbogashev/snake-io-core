@@ -3,10 +3,7 @@
 package model.state.impl
 
 import model.Context
-import model.api.v1.dto.GameConfig
-import model.api.v1.dto.GameState
-import model.api.v1.dto.NodeRole
-import model.api.v1.dto.Player
+import model.api.v1.dto.*
 import mu.KotlinLogging
 import java.net.InetSocketAddress
 import java.util.concurrent.CompletableFuture
@@ -55,8 +52,12 @@ open class ViewMatchState(
                 else -> {}
             }
         }
-        initialized = true
+        logger.debug { gameState.players.toString() }
+        logger.debug { master }
+        logger.debug { deputy }
+        logger.debug { me }
         this.gameState = gameState
+        initialized = true
         updateGameState(gameState)
     }
 
@@ -81,12 +82,13 @@ open class ViewMatchState(
 
     // Предполагается, что мастер отвалился
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
-        logger.info("RESTORE_PROCESS", "ViewMatchState::onNodeRemoved () address=$address, role=$role")
+        logger.info("ViewMatchState::onNodeRemoved () address=$address, role=$role")
         if (role != NodeRole.MASTER) {
             return
         }
         if (deputy != null) {
             master = deputy as Player
+            context.connectionManager.trackNode(master.address, NodeRole.MASTER)
         } else {
             context.stateHolder.change(LobbyState(context))
         }
@@ -109,7 +111,7 @@ open class ViewMatchState(
                 }
                 me
             }
-            return future.get(config.stateDelayMs * 3L, TimeUnit.MILLISECONDS)
+            return future.get()
         }
         return me
     }

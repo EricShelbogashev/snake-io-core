@@ -11,6 +11,7 @@ import mu.KotlinLogging
 import java.io.Closeable
 import java.net.*
 import java.time.Instant
+import java.util.NoSuchElementException
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -63,19 +64,30 @@ class ConnectionManager(
 
     private fun nodeRemoveHandle(role: NodeRole) {
         if (role == NodeRole.MASTER) {
-            for (player in cachedState!!.players) {
-                // Мастер покинул игру, следовательно игнорируем.
-                if (player.role == NodeRole.MASTER) {
-                    continue
+            logger.info("freeze")
+            nodesHolder.freeze(delayMs.get() * 5)
+            if (cachedState != null) {
+                for (player in cachedState!!.players) {
+                    // Мастер покинул игру, следовательно игнорируем.
+                    if (player.role == NodeRole.MASTER) {
+                        continue
+                    }
+                    // Если среди нод были мы, игнорируем. Нельзя хранить информацию о нашей ноде среди других.
+                    if (player.role == NodeRole.DEPUTY) {
+                        continue
+                    }
+                    nodesHolder.put(player.address, player.role)
                 }
-                // Если среди нод были мы, игнорируем. Нельзя хранить информацию о нашей ноде среди других.
-                if (player.role == NodeRole.DEPUTY) {
-                    continue
-                }
-                nodesHolder.put(player.address, player.role)
+            }
+            if (nodesHolder.deputy() != null) {
+                nodesHolder.put(nodesHolder.deputy()!!, NodeRole.MASTER)
             }
             logger.error { nodesHolder.addresses }
         }
+    }
+
+    fun trackNode(address: InetSocketAddress, role: NodeRole) {
+        nodesHolder.put(address, role)
     }
 
     private val connectionWatchTask = {
@@ -166,48 +178,6 @@ class ConnectionManager(
         schedulePingTask = schedulePingTask((DELAY_UPDATE_COEFFICIENT * delayMs.get()).toLong())
     }
 
-    // Если к нам (хосту игры) подключилась нода, нужно проверить, стоит ли ее сделать заместителем.
-//    private fun onNonMasterConnected(player: Player) {
-//        if (nodesHolder.deputy() != null) {
-//            return
-//        }
-//        val message = RoleChange(
-//            player.address,
-//            -1,
-//            player.id,
-//            NodeRole.MASTER,
-//            NodeRole.DEPUTY
-//        )
-//        requestController.roleChange(message)
-//        if (onRoleChangeHandler == null) {
-//            throw IllegalStateException("в роли MASTER необходимо установить обработчик смены ролей")
-//        }
-//        logger.error("Смена ролей =${NodeRole.DEPUTY}")
-//        onRoleChangeHandler?.invoke(player.address, NodeRole.DEPUTY)
-//    }
-
-//     Необходимо проверить, не отключился ли узел с ролью Deputy или Master
-//    private fun onDisconnected(role: NodeRole) {
-//        if (role == NodeRole.DEPUTY) {
-//            // Заменяем заместителя.
-//            val address = nodesHolder.addresses.random()
-//            val message = RoleChange(
-//                address,
-//                -1,
-//                -1,
-//                NodeRole.MASTER,
-//                NodeRole.DEPUTY
-//            )
-//            requestController.roleChange(message)
-//            onRoleChangeHandler?.invoke(address, NodeRole.DEPUTY)
-//        } else if (role == NodeRole.MASTER) {
-//            // Заменяем мастера.
-//            val deputy = nodesHolder.deputy() ?: return
-//            nodesHolder.put(deputy, NodeRole.DEPUTY)
-//        }
-//        logger.error("Смена ролей =${role}")
-//    }
-
     private fun scheduleConnectionWatchTask(delay: Long): ScheduledFuture<*> {
         return scheduledExecutor.scheduleAtFixedRate(
             connectionWatchTask,
@@ -260,6 +230,9 @@ class ConnectionManager(
                 // Подстраиваемся под время задержки
                 val del = message.games.maxOfOrNull { game -> game.config.stateDelayMs }
                 if (del != null) setStateDelayMs(del.toLong())
+                if (message.games.isNotEmpty()) {
+                    cachedState = message.games.first()
+                }
                 requestController.announcement(message)
             }
 
@@ -311,7 +284,9 @@ class ConnectionManager(
                     // Насытим мастера его адресом
                     gameMessage.master().ip = gameMessage.address.hostName
                     gameMessage.master().port = gameMessage.address.port
-
+                    if (cachedState != null) {
+                        cachedState!!.players = gameMessage.players
+                    }
                     nodesHolder.actualize(gameMessage.address)
                     (onGameStateHandler ?: onOtherHandler)?.invoke(gameMessage)
                 }
@@ -436,6 +411,7 @@ class ConnectionManager(
 
     private fun handleAck(ack: Ack) {
         val message = synchronized(sentMessagesLock) {
+            nodesHolder.actualize(ack.address)
             sentMessages.remove(ack.msgSeq) ?: return
         }
 

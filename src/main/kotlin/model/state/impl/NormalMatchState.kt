@@ -6,6 +6,7 @@ import model.Context
 import model.GameController
 import model.api.v1.dto.*
 import mu.KotlinLogging
+import mu.Marker
 import java.net.InetSocketAddress
 
 class NormalMatchState(
@@ -30,7 +31,7 @@ class NormalMatchState(
 
     // Предполагается, что единственная нода, к которой мы подключены - MASTER
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
-        logger.info("RESTORE_PROCESS", "NormalMatchState::onNodeRemoved () address=$address, role=$role")
+        logger.info("NormalMatchState::onNodeRemoved () address=$address, role=$role, deputy=${deputy}, me=${me}")
         if (role == NodeRole.MASTER && deputy == me) {
             if (gameState == null) {
                 throw IllegalStateException("игровое состояние не найдено, вероятно, смена ролей произошла до получения информации об игровом поле")

@@ -4,7 +4,6 @@ import model.api.v1.dto.NodeRole
 import mu.KotlinLogging
 import java.io.Closeable
 import java.net.InetSocketAddress
-import java.time.Instant
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
@@ -44,26 +43,40 @@ class NodesHolder(
     private var scheduledFuture: ScheduledFuture<*>
     private val logger = KotlinLogging.logger { }
     private val delay: AtomicLong
+    private val freeze = AtomicLong(0)
 
     init {
         this.delay = AtomicLong(delay)
     }
 
     private val removingTask = {
-        val now = System.currentTimeMillis()
+        try {
+            logger.error { connectedNodes.values }
+            val now = System.currentTimeMillis()
 
-        val toDelete: MutableList<InetSocketAddress> = mutableListOf()
-        synchronized(connectedNodesLock) {
-            for (node in connectedNodes) {
-                if (now - node.value.second < delay) continue
+            val toDelete: MutableList<InetSocketAddress> = mutableListOf()
+            synchronized(connectedNodesLock) {
+                for (node in connectedNodes) {
+                    if (now - node.value.second < delay + freeze.get()) continue
 
-                // Удалить узел в связи с превышением времени с последней актуализации.
-                toDelete.add(node.key)
+                    // Удалить узел в связи с превышением времени с последней актуализации.
+                    toDelete.add(node.key)
+                }
             }
-        }
-        for (deleted in toDelete) {
-            // Не может быть, чтобы роль была null у известного узла.
-            remove(deleted)
+            freeze.getAndUpdate {
+                it.minus(delay)
+                if (it < 0) {
+                    0L
+                } else {
+                    it
+                }
+            }
+            for (deleted in toDelete) {
+                // Не может быть, чтобы роль была null у известного узла.
+                remove(deleted)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -90,8 +103,7 @@ class NodesHolder(
     fun delay(value: Long) {
         delay.set(value)
         scheduledFuture.cancel(true)
-        scheduledFuture =
-            scheduledExecutor.scheduleAtFixedRate(removingTask, value, value, TimeUnit.MILLISECONDS)
+        scheduledFuture = scheduledExecutor.scheduleAtFixedRate(removingTask, value, value, TimeUnit.MILLISECONDS)
     }
 
     fun remove(address: InetSocketAddress): NodeRole? {
@@ -112,6 +124,10 @@ class NodesHolder(
         }
     }
 
+    fun freeze(long: Long) {
+        freeze.updateAndGet { long }
+    }
+
     fun contains(address: InetSocketAddress): Boolean {
         return connectedNodes.containsKey(address)
     }
@@ -120,6 +136,12 @@ class NodesHolder(
         val pair = connectedNodes[address] ?: return
 
         connectedNodes[address] = pair.first to System.currentTimeMillis()
+    }
+
+    fun actualizeAll() {
+        for (node in connectedNodes) {
+            connectedNodes[node.key] = node.value.first to System.currentTimeMillis()
+        }
     }
 
     fun get(address: InetSocketAddress): NodeRole? {
