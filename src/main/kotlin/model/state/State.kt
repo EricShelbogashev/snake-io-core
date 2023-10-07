@@ -12,4 +12,4 @@ import java.io.Closeable
 @Contract("не вызывать метод close() внутри состояния")
 @Contract("может выбрасывать пользовательские ошибки только из методов, определяемых контроллером")
 @Contract("может выбросить RuntimeException из конструктора или close() в случае критической ошибки")
-interface State: Closeable
+interface State: Initializable, Closeable

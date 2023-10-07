@@ -33,8 +33,6 @@ class MasterMatchState : MatchState, GameController {
         )
         this.field = Field(config, master)
         this.deputy = null
-        context.connectionManager.setOnJoinRequestHandler(::joinRequest)
-        context.connectionManager.setOnSteerHandler(::directionRequest)
         this.directions = DirectionsHolder()
 //        context.connectionManager.setOnRoleChangeHandler { address: InetSocketAddress, role: NodeRole ->
 //            if (role == NodeRole.DEPUTY) {
@@ -92,6 +90,12 @@ class MasterMatchState : MatchState, GameController {
                 )
             )
         }, 1000, GAME_ANNOUNCEMENT_DELAY_MS, TimeUnit.MILLISECONDS)
+    }
+
+    override fun initialize() {
+        context.connectionManager.setOnJoinRequestHandler(::joinRequest)
+        context.connectionManager.setOnSteerHandler(::directionRequest)
+        super.initialize()
     }
 
     constructor(

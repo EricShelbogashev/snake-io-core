@@ -15,36 +15,6 @@ class LobbyState(private val context: Context) : State, LobbyController {
     private var announcementsCache = TimebasedCache<InetSocketAddress, Announcement>(TimeUnit.SECONDS.toMillis(3))
     private var announcementsListenTask: Timer? = null
 
-    init {
-        context.connectionManager.setOnJoinAccepted { join: Join, playerId: Int ->
-            val game = getJoinedGameFromAnnouncements(join.address, join.gameName)
-            context.stateHolder.change(
-                when (join.nodeRole) {
-                    NodeRole.NORMAL, NodeRole.DEPUTY -> NormalMatchState(
-                        context = context,
-                        playerId = playerId,
-                        playerName=join.playerName,
-                        gameName = join.gameName,
-                        config = game.config
-                    )
-                    NodeRole.VIEWER -> ViewMatchState(
-                        context = context,
-                        playerId = playerId,
-                        gameName = join.gameName,
-                        config = game.config
-                    )
-                    else -> { throw IllegalStateException()}
-//                    NodeRole.MASTER -> MasterMatchState(
-//                        context = context,
-//                        playerId = playerId,
-//                        gameName = join.gameName,
-//                        config = game.config
-//                    )
-                }
-            )
-        }
-    }
-
     private fun getJoinedGameFromAnnouncements(address: InetSocketAddress, gameName: String): Game {
         val load = announcementsCache.load(address)
             ?: throw IllegalArgumentException("указанный хост не существует или перестал вещать")
@@ -127,6 +97,36 @@ class LobbyState(private val context: Context) : State, LobbyController {
 
     private fun removeJoinHandler() {
         context.connectionManager.setOnJoinAccepted(null)
+    }
+
+    override fun initialize() {
+        context.connectionManager.setOnJoinAccepted { join: Join, playerId: Int ->
+            val game = getJoinedGameFromAnnouncements(join.address, join.gameName)
+            context.stateHolder.change(
+                when (join.nodeRole) {
+                    NodeRole.NORMAL, NodeRole.DEPUTY -> NormalMatchState(
+                        context = context,
+                        playerId = playerId,
+                        playerName=join.playerName,
+                        gameName = join.gameName,
+                        config = game.config
+                    )
+                    NodeRole.VIEWER -> ViewMatchState(
+                        context = context,
+                        playerId = playerId,
+                        gameName = join.gameName,
+                        config = game.config
+                    )
+                    else -> { throw IllegalStateException()}
+//                    NodeRole.MASTER -> MasterMatchState(
+//                        context = context,
+//                        playerId = playerId,
+//                        gameName = join.gameName,
+//                        config = game.config
+//                    )
+                }
+            )
+        }
     }
 
     override fun close() {

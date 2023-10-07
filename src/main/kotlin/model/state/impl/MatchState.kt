@@ -15,7 +15,7 @@ abstract class MatchState(
 ) : State, ViewGameController {
     private var onGameStateChangeListener: ((state: GameState) -> Unit)? = null
 
-    init {
+    override fun initialize() {
         context.connectionManager.setOnNodeRemovedHandler(::onNodeRemoved)
     }
 

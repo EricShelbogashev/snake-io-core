@@ -29,12 +29,6 @@ open class ViewMatchState(
     private var initialized = false
     protected var gameState: GameState? = null
 
-    init {
-        context.connectionManager.setOnGameStateHandler(::gameStateHandle)
-        context.connectionManager.setStateDelayMs(config.stateDelayMs.toLong())
-        context.connectionManager.setOnRoleChangeHandler(::onRoleChanged)
-    }
-
     private fun gameStateHandle(gameState: GameState) {
         gameState.players.forEach { player ->
             if (player.id == playerId) {
@@ -100,6 +94,13 @@ open class ViewMatchState(
         context.connectionManager.setOnGameStateHandler(null)
         context.connectionManager.setOnNodeRemovedHandler(null)
         super.close()
+    }
+
+    override fun initialize() {
+        context.connectionManager.setOnGameStateHandler(::gameStateHandle)
+        context.connectionManager.setStateDelayMs(config.stateDelayMs.toLong())
+        context.connectionManager.setOnRoleChangeHandler(::onRoleChanged)
+        context.connectionManager.setOnNodeRemovedHandler(::onNodeRemoved)
     }
 
     override fun gameName(): String = gameName
