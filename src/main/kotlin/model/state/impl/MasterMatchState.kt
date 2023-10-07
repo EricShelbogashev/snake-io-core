@@ -9,7 +9,6 @@ import model.api.JoinRequest
 import model.api.v1.dto.*
 import model.engine.Field
 import model.error.CriticalException
-import mu.KotlinLogging
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -48,14 +47,9 @@ class MasterMatchState : MatchState, GameController {
         // Задача на обновление игрового состояния. Начинает работать через секунду после
         executors.scheduleAtFixedRate({
             // Update game state.
-            logger.debug { "[game state update task] : executed" }
-
             try {
                 val gameState = synchronized(fieldLock) {
                     field.calculateStep(directions.readAll())
-                }
-                gameState.snakes.forEach { snake ->
-                    logger.info { snake.toString() }
                 }
                 // Send game update to nodes.
                 field.players.values.forEach { player ->
@@ -127,7 +121,6 @@ class MasterMatchState : MatchState, GameController {
     private var field: Field
     private val fieldLock = Any()
     private var sequenceNumber = Long.MIN_VALUE
-    private val logger = KotlinLogging.logger {}
 
     private fun directionRequest(steer: Steer) {
         directions.request(
@@ -174,32 +167,25 @@ class MasterMatchState : MatchState, GameController {
         joinRequest.accept(player)
     }
 
-    override fun leaveGame() {
-        // TODO: сообщить об уходе
-        super.leaveGame()
-    }
-
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
-        logger.info("MasterMatchState::onNodeRemoved () address=$address, role=$role")
-
         val player = field.getPlayerByAddress(address)
             ?: return
         field.removePlayer(player.id)
 
         if (deputy == null || role == NodeRole.DEPUTY) {
-            for (player in field.players.values) {
-                if (player.role != NodeRole.MASTER) {
+            for (node in field.players.values) {
+                if (node.role != NodeRole.MASTER) {
                     context.connectionManager.send(
                         RoleChange(
-                            player.address,
+                            node.address,
                             master.id,
-                            player.id,
+                            node.id,
                             NodeRole.MASTER,
                             NodeRole.DEPUTY,
                         )
                     )
-                    player.role = NodeRole.DEPUTY
-                    deputy = player
+                    node.role = NodeRole.DEPUTY
+                    deputy = node
                     return
                 }
             }

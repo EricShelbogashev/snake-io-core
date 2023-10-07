@@ -27,7 +27,6 @@ class ConnectionManager(
     private val multicastGroup: InetSocketAddress
 ) : Closeable {
     // Для приема сообщений
-    private val logger = KotlinLogging.logger {}
     private var onAnnouncementHandler: ((announcement: Announcement) -> Unit)? = null
     private var onErrorHandler: ((error: model.api.v1.dto.Error) -> Unit)? = null
     private var onGameStateHandler: ((gameState: GameState) -> Unit)? = null
@@ -57,14 +56,12 @@ class ConnectionManager(
     // Ноды
     private val nodesHolder =
         NodesHolder((delayMs.get() * MAX_DELAY_COEFFICIENT).toLong()) { address: InetSocketAddress, role: NodeRole ->
-            logger.info("узел удален : address=$address, role=$role, onNodeRemovedHandler is${if (onNodeRemovedHandler == null) "" else " not"} null")
             onNodeRemovedHandler?.invoke(address, role)
             nodeRemoveHandle(role)
         }
 
     private fun nodeRemoveHandle(role: NodeRole) {
         if (role == NodeRole.MASTER) {
-            logger.info("freeze")
             nodesHolder.freeze(delayMs.get() * 5)
             if (cachedState != null) {
                 for (player in cachedState!!.players) {
@@ -82,7 +79,6 @@ class ConnectionManager(
             if (nodesHolder.deputy() != null) {
                 nodesHolder.put(nodesHolder.deputy()!!, NodeRole.MASTER)
             }
-            logger.error { nodesHolder.addresses }
         }
     }
 
@@ -110,15 +106,6 @@ class ConnectionManager(
             if (now - message.second > maxTimeHasPassed) {
                 synchronized(sentMessagesLock) {
                     sentMessages.remove(message.first.msgSeq)
-
-//                     Если роль отсутствует, значит заполнение nodeHolder происходило неверно или есть саботирующий код
-//                    val role = nodesHolder.remove(message.first.address)
-//                        ?: throw CriticalException("роль узла, с которым была потеряна связь, не может быть null")
-//
-//                    logger.debug {
-//                        "узел отсоединен : address=${message.first.address}, role=$role"
-//                    }
-//                    onNodeRemovedHandler?.invoke(message.first.address, role)
                 }
             }
         }
@@ -207,8 +194,6 @@ class ConnectionManager(
 
     // Остальные сообщения реализуются ConnectionManager'ом.
     fun send(message: Message) {
-        logger.debug { "send() : message=$message" }
-
         try {
             if (message.msgSeq == Message.DEFAULT_MESSAGE_SEQUENCE_NUMBER) {
                 message.msgSeq = msgSeq.incrementAndGet()
@@ -239,7 +224,6 @@ class ConnectionManager(
             is model.api.v1.dto.Error -> requestController.error(message)
             is GameState -> {
                 if (!nodesHolder.contains(message.address)) {
-                    logger.info("отправлено сообщение на несуществующий узел, узел добавлен в список отслеживаемых")
                     nodesHolder.put(message.address, NodeRole.NORMAL)
                 }
                 requestController.state(message)
@@ -470,39 +454,27 @@ class ConnectionManager(
     }
 
     fun setOnJoinRequestHandler(onJoinRequestHandler: ((joinRequest: JoinRequest) -> Unit)?) {
-        logger.debug { "setOnJoinRequestHandler()" }
-
         this.onJoinRequestHandler = onJoinRequestHandler
     }
 
     fun setOnAnnouncementHandler(onAnnouncementHandler: ((announcement: Announcement) -> Unit)?) {
-        logger.debug { "setOnAnnouncementHandler()" }
-
         this.nodesHolder.clearNodes()
         this.onAnnouncementHandler = onAnnouncementHandler
     }
 
     fun setOnErrorHandler(onErrorHandler: ((error: model.api.v1.dto.Error) -> Unit)?) {
-        logger.debug { "setOnErrorHandler()" }
-
         this.onErrorHandler = onErrorHandler
     }
 
     fun setOnGameStateHandler(onGameStateHandler: ((gameState: GameState) -> Unit)?) {
-        logger.debug { "setOnGameStateHandler()" }
-
         this.onGameStateHandler = onGameStateHandler
     }
 
     fun setOnRoleChangeHandler(onRoleChangeHandler: ((address: InetSocketAddress, role: NodeRole) -> Unit)?) {
-        logger.debug { "setOnRoleChangeHandler()" }
-
         this.onRoleChangeHandler = onRoleChangeHandler
     }
 
     fun setOnSteerHandler(onSteerHandler: ((steer: Steer) -> Unit)?) {
-        logger.debug { "setOnSteerHandler()" }
-
         this.onSteerHandler = onSteerHandler
     }
 

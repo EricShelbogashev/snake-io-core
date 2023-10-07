@@ -21,7 +21,6 @@ open class ViewMatchState(
     }
 
     private val executors = Executors.newScheduledThreadPool(USED_THREADS_NUMBER)
-    private val logger = KotlinLogging.logger {}
     protected var deputy: Player? = null
     protected lateinit var master: Player
     protected lateinit var me: Player
@@ -59,7 +58,6 @@ open class ViewMatchState(
     }
 
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
-        logger.info("ViewMatchState::onNodeRemoved () address=$address, role=$role")
         if (role != NodeRole.MASTER) {
             return
         }
@@ -72,7 +70,6 @@ open class ViewMatchState(
     }
 
     override fun close() {
-        logger.debug { "ViewMatchState::close ()" }
         executors.shutdownNow()
         context.connectionManager.setOnGameStateHandler(null)
         context.connectionManager.setOnNodeRemovedHandler(null)

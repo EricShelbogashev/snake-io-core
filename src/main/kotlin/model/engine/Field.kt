@@ -115,7 +115,6 @@ class Field(
     }
 
     fun addPlayer(player: Player): Player {
-        logger.info { "addPlayer() : player=$player" }
         if (/*TODO: Field doesn't have free squares*/ false) {
             throw IllegalStateException("Unable to create player: no free space")
         }

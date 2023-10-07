@@ -41,7 +41,6 @@ class NodesHolder(
     val addresses get() = connectedNodes.keys
     private val scheduledExecutor = Executors.newScheduledThreadPool(SCHEDULED_DEFAULT_THREADS_NUM)
     private var scheduledFuture: ScheduledFuture<*>
-    private val logger = KotlinLogging.logger { }
     private val delay: AtomicLong
     private val freeze = AtomicLong(0)
 
@@ -51,7 +50,6 @@ class NodesHolder(
 
     private val removingTask = {
         try {
-            logger.error { connectedNodes.values }
             val now = System.currentTimeMillis()
 
             val toDelete: MutableList<InetSocketAddress> = mutableListOf()

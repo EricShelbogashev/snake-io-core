@@ -17,7 +17,6 @@ class NormalMatchState(
     private val playerName: String
 ) : ViewMatchState(context, playerId, gameName, config),
     GameController {
-    private val logger = KotlinLogging.logger {}
 
     override fun move(direction: Direction) {
         context.connectionManager.send(
@@ -31,7 +30,6 @@ class NormalMatchState(
 
     // Предполагается, что единственная нода, к которой мы подключены - MASTER
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
-        logger.info("NormalMatchState::onNodeRemoved () address=$address, role=$role, deputy=${deputy}, me=${me}")
         if (role == NodeRole.MASTER && deputy == me) {
             if (gameState == null) {
                 throw IllegalStateException("игровое состояние не найдено, вероятно, смена ролей произошла до получения информации об игровом поле")
