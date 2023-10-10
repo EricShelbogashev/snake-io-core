@@ -1,6 +1,7 @@
 package model.engine
 
 import model.api.v1.dto.*
+import model.error.CriticalException
 import mu.KotlinLogging
 import java.net.InetSocketAddress
 import kotlin.random.Random
@@ -8,7 +9,8 @@ import kotlin.random.nextInt
 
 class Field(
     val config: GameConfig,
-    val master: Player
+    var master: Player,
+    val deathNotificationHandler: () -> Unit
 ) {
     val players: MutableMap<Int, Player> = hashMapOf()
     val snakes: MutableMap<Int, Snake> = hashMapOf()
@@ -18,14 +20,20 @@ class Field(
     private var poolIds: Int = master.id + 1
     private var gameStateNum: Int = Int.MIN_VALUE
     private val logger = KotlinLogging.logger {}
+    private var isDead = false
 
     init {
         addMaster(master)
     }
 
-    constructor(config: GameConfig, master: Player, gameState: GameState) : this(config, master) {
+    constructor(
+        config: GameConfig,
+        master: Player,
+        gameState: GameState,
+        deathNotificationHandler: () -> Unit
+    ) : this(config, master, deathNotificationHandler) {
         poolIds = (gameState.players.maxOfOrNull { selector -> selector.id } ?: master.id) + 1
-
+        logger.info { gameState.players }
         gameState.players.forEach { player ->
             val role = if (player.id == master.id) {
                 NodeRole.MASTER
@@ -62,21 +70,37 @@ class Field(
         return poolIds++
     }
 
-    fun calculateStep(directions: Map<Int, Direction>): GameState {
+    fun masterDie() {
+        isDead = true
+        deathNotificationHandler()
+    }
+
+    fun calculateStep(directions: Map<Int, Direction>): GameState? {
+        if (isDead) return null
         moveSnakes(directions)
         collisionsResolver.resolveAll()
+        if (isDead) return null
+
+        if (players[master.id] == null) {
+            throw CriticalException("узел мастера не может отсутствовать среди игроков, если мастер умер, игра должна моментально завершиться")
+        }
+
+        if (snakes[master.id] == null) {
+            throw CriticalException("isDead должен был быть равен true на этом этапе")
+        }
+
         spawnFood()
 
         val step = gameStateNum++
         val sortedPlayers = players.values.sortedByDescending { it.score }
 
         return GameState(
-            address = InetSocketAddress(0),
+            address = master.address,
             senderId = master.id,
             number = step,
-            players = sortedPlayers.toTypedArray(),
-            food = food.values.toTypedArray(),
-            snakes = snakes.values.map { it.toDto() }.toTypedArray()
+            players = sortedPlayers.toTypedArray<Player>(),
+            food = food.values.toTypedArray<model.api.v1.dto.Food>(),
+            snakes = snakes.values.map { it.toDto() }.toTypedArray<model.api.v1.dto.Snake>()
         )
     }
 
@@ -102,16 +126,16 @@ class Field(
         val diff = players.size + config.foodStatic - food.size
         if (diff > 0) {
             repeat(diff) {
-                Food(
-                    this, Coords(
-                        this,
-                        x = Random.nextInt(0 until config.width),
-                        y = Random.nextInt(0 until config.height)
-                    )
+                val coords = Coords(
+                    this,
+                    x = Random.nextInt(0 until config.width),
+                    y = Random.nextInt(0 until config.height)
                 )
+                if (!points.containsKey(coords)) {
+                    Food(this, coords)
+                }
             }
         }
-        // TODO: Calculate spawn points for players
     }
 
     fun addPlayer(player: Player): Player {
@@ -119,14 +143,23 @@ class Field(
             throw IllegalStateException("Unable to create player: no free space")
         }
 
-        // TODO: Provide a point
-        val FAKE_HEAD = Coords(this, 1, 1)
+        val head = Coords(this, 1, 1)
+        if (points[head] != null) {
+            throw IllegalStateException("невозможно добваить игрока на поле")
+        }
 
         // Assign an identifier
         player.id = getId()
         player.score = 0
         players[player.id] = player
-        Snake(this, player.id, FAKE_HEAD)
+        Snake(this, player.id, head)
+        return player
+    }
+
+    fun addViewer(player: Player): Player {
+        logger.warn { "added viewer" }
+        player.id = getId()
+        players[player.id] = player
         return player
     }
 

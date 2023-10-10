@@ -2,34 +2,35 @@ package model.engine
 
 class Food(
     private val field: Field,
-    private var coords: Coords?
-) : model.api.v1.dto.Food(coords?.x ?: 0, coords?.y ?: 0) {
-
+    private var coords: Coords
+) : model.api.v1.dto.Food(coords.x, coords.y) {
+    private var isEeaten = false
     init {
-        coords?.let { initializeFood(it) }
+        initializeFood(coords)
     }
 
     private fun initializeFood(coords: Coords) {
-        if (!field.points.containsKey(coords)) {
-            field.points[coords] = -1
-            field.food[coords] = this
+        if (field.points.containsKey(coords)) {
+            throw IllegalArgumentException("выбранная точка на поле уже занята. Невозможно разместить еду")
         }
+        field.points[coords] = -1
+        field.food[coords] = this
     }
 
     fun eat() {
-        assert(coords != null) {
+        assert(isEeaten) {
             throw IllegalStateException("Food is already eaten")
         }
         field.food.remove(coords)
         field.points.remove(coords)
-        coords = null
+        isEeaten = true
     }
 
     fun getCoords(): Coords {
-        assert(coords != null) {
+        assert(isEeaten) {
             throw IllegalStateException("Food is already eaten")
         }
-        return coords!!
+        return coords
     }
 
     override fun equals(other: Any?): Boolean {

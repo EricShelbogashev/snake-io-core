@@ -2,6 +2,7 @@ package model.engine
 
 import model.api.v1.dto.Direction
 import model.api.v1.dto.NodeRole
+import mu.KotlinLogging
 
 class Snake{
     private var _status: Status
@@ -13,6 +14,7 @@ class Snake{
 
     var body: ArrayDeque<Coords>
     private val field: Field
+    private val logger = KotlinLogging.logger {}
 
     constructor(field: Field, playerId: Int, head: Coords) {
         this.body = ArrayDeque(2)
@@ -41,10 +43,16 @@ class Snake{
     }
 
     private fun head(): Coords {
+        assert(status == Status.ALIVE) {
+            "Змея мертва и не имеет головы."
+        }
         return body.first()
     }
 
-    private fun tail(): Coords {
+    fun tail(): Coords {
+        assert(status == Status.ALIVE) {
+            "Змея мертва и не имеет хвоста."
+        }
         return body.last()
     }
 
@@ -54,29 +62,33 @@ class Snake{
         }
         if (direction().reverse() == direction) return moveForward()
         val newHead = newHead(this, direction)
+        body.addFirst(newHead)
 
+        logger.debug { "Змея двигается без изменений" }
         // Змея двигается без изменений
         if (!field.points.containsKey(newHead)) {
-            field.points[newHead] = playerId
-            field.points.remove(body.last())
-            body.addFirst(newHead)
+            // Голову не добавляем на поле, так как она будет просчитываться позже.
+            field.points.remove(tail())
             body.removeLast()
+            field.collisionsResolver.report(this, head())
+            field.collisionsResolver.report(this, tail())
             return
         }
 
         val involvedPointCode = field.points[newHead]!!
 
+        logger.debug { "Еда" }
         // Еда
         if (involvedPointCode < 0) {
-            val food = field.food[newHead]!!
-            food.eat()
-            body.addFirst(newHead)
-            field.points[newHead] = playerId
             val player = field.players[playerId]
             player?.score = body.size - 2
+            field.collisionsResolver.report(this, head())
+            field.collisionsResolver.report(this, tail())
+            logger.debug { "змея $playerId съела еду по координатам ${head()}" }
             return
         }
 
+        logger.debug { "Другая змея" }
         // Другая змея
         val otherSnake: Snake = field.snakes[involvedPointCode]!!
 
@@ -84,44 +96,53 @@ class Snake{
             "После смерти змея теряет тело, следовательно другая змея не может получить коллизию с телом погибшей змеи."
         }
 
+        logger.debug { "Проверка на наличие коллизий." }
         /* Проверка на наличие коллизий. */
         /* Если столкновение с телом другой змеи, наша змея погибает. */
         if (newHead != otherSnake.head() && newHead != otherSnake.tail()) {
+            logger.debug { "newHead=$newHead, otherSnake=$otherSnake" }
             die()
             return
         }
 
+        logger.debug { " Столкновение с головой или хвостом может вызвать коллизию, поэтому решение этой проблемы делигируется " }
         /* Столкновение с головой или хвостом может вызвать коллизию, поэтому решение этой проблемы делигируется */
         /* классу CollisionsResolver. */
         field.collisionsResolver.report(this, newHead)
+        field.collisionsResolver.report(this, tail())
     }
 
     fun moveForward() {
+        assert(status == Status.ALIVE) {
+            "После смерти змея не может двигаться."
+        }
         return move(direction())
     }
 
     /* После вызова этого метода змею необходимо удалить из владения пользователя для утилизации GC. */
-    private fun die() {
+    fun die() {
+        logger.debug { "Змея $playerId умерла" }
         assert(status == Status.ALIVE) {
             "Змея не может умереть дважды."
         }
         // Удаление змейки с поля.
         for (cell in body) {
-            if (becomeFoodRandom()) {
-                field.points.replace(cell, -1)
+            field.points.remove(cell)
+            if (becomeFoodRandom() && cell != tail() && cell != head()) {
                 field.food[cell] = Food(field, cell)
-            } else {
-                field.points.remove(cell)
             }
         }
         body.clear()
         _status = Status.DEAD
         field.snakes.remove(playerId)
 
+        if (field.players[playerId]?.role == NodeRole.MASTER) {
+            field.masterDie()
+            return
+        }
         // Изменение статуса игрока на зрителя. Данное состояние не участвует ни в каких вычислениях, поэтому
         // необходимо удалить игрока при обнаружении этого статуса во время прочтения состояния игры.
-        val player = field.players[playerId]
-        player?.role = NodeRole.VIEWER
+        field.players[playerId]?.role = NodeRole.VIEWER
     }
 
     fun direction(): Direction {

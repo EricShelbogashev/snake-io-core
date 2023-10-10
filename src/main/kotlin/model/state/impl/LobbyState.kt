@@ -100,6 +100,7 @@ class LobbyState(private val context: Context) : State, LobbyController {
     }
 
     override fun initialize() {
+        context.connectionManager.setOnGameStateHandler(null)
         context.connectionManager.setOnJoinAccepted { join: Join, playerId: Int ->
             val game = getJoinedGameFromAnnouncements(join.address, join.gameName)
             context.stateHolder.change(

@@ -9,6 +9,7 @@ import model.api.JoinRequest
 import model.api.v1.dto.*
 import model.engine.Field
 import model.error.CriticalException
+import mu.KotlinLogging
 import java.net.InetSocketAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -30,7 +31,7 @@ class MasterMatchState : MatchState, GameController {
             playerName,
             MASTER_PLAYER_ID
         )
-        this.field = Field(config, master)
+        this.field = Field(config, master, ::onDeathNotification)
         this.deputy = null
         this.directions = DirectionsHolder()
 //        context.connectionManager.setOnRoleChangeHandler { address: InetSocketAddress, role: NodeRole ->
@@ -45,18 +46,25 @@ class MasterMatchState : MatchState, GameController {
 //        }
 
         // Задача на обновление игрового состояния. Начинает работать через секунду после
+
+    }
+
+    override fun initialize() {
+        context.connectionManager.setOnJoinRequestHandler(::joinRequest)
+        context.connectionManager.setOnSteerHandler(::directionRequest)
         executors.scheduleAtFixedRate({
             // Update game state.
             try {
                 val gameState = synchronized(fieldLock) {
                     field.calculateStep(directions.readAll())
-                }
+                } ?: return@scheduleAtFixedRate
+                logger.debug { "Отправлено обновление игрового поля игроком ${master.name}\n$gameState" }
                 // Send game update to nodes.
                 field.players.values.forEach { player ->
-                    if (player.role == NodeRole.MASTER) return@forEach
+                    if (player.id == master.id) return@forEach
 
                     gameState.address = player.address
-                    context.connectionManager.send(gameState)
+                    gameState.let { context.connectionManager.send(it) }
                 }
 
                 // Update master's screen.
@@ -84,11 +92,6 @@ class MasterMatchState : MatchState, GameController {
                 )
             )
         }, 1000, GAME_ANNOUNCEMENT_DELAY_MS, TimeUnit.MILLISECONDS)
-    }
-
-    override fun initialize() {
-        context.connectionManager.setOnJoinRequestHandler(::joinRequest)
-        context.connectionManager.setOnSteerHandler(::directionRequest)
         super.initialize()
     }
 
@@ -100,7 +103,7 @@ class MasterMatchState : MatchState, GameController {
         gameState: GameState,
         newMaster: Player
     ) : this(context, playerName, gameName, config) {
-        field = Field(config, newMaster, gameState)
+        field = Field(config, newMaster, gameState, ::onDeathNotification)
         master = newMaster
     }
 
@@ -121,6 +124,7 @@ class MasterMatchState : MatchState, GameController {
     private var field: Field
     private val fieldLock = Any()
     private var sequenceNumber = Long.MIN_VALUE
+    private val logger = KotlinLogging.logger {  }
 
     private fun directionRequest(steer: Steer) {
         directions.request(
@@ -131,6 +135,12 @@ class MasterMatchState : MatchState, GameController {
     }
 
     private fun joinRequest(joinRequest: JoinRequest) {
+        synchronized(fieldLock) {
+            if (field.players.values.find { player -> player.address == joinRequest.join.address } != null) {
+                return
+            }
+        }
+        logger.info { joinRequest }
         val join = joinRequest.join
         if (join.nodeRole == NodeRole.MASTER || join.nodeRole == NodeRole.DEPUTY) {
             // ошибка, такое в функцию попасть не могло
@@ -138,13 +148,9 @@ class MasterMatchState : MatchState, GameController {
             throw CriticalException("")
         }
 
-        if (joinRequest.join.nodeRole == NodeRole.VIEWER) {
-            return
-        }
-
-        val role = if (deputy == null) {
+        val role = if (deputy == null && join.nodeRole != NodeRole.VIEWER) {
             NodeRole.DEPUTY
-        } else NodeRole.NORMAL
+        } else join.nodeRole
 
         var player = Player(
             ip = join.address.hostName,
@@ -156,25 +162,79 @@ class MasterMatchState : MatchState, GameController {
             id = -1
         )
 
+        if (joinRequest.join.nodeRole == NodeRole.VIEWER) {
+            synchronized(fieldLock) {
+                joinRequest.accept(field.addViewer(player))
+            }
+            return
+        }
+
         if (role == NodeRole.DEPUTY) {
             deputy = player
         }
 
-        synchronized(fieldLock) {
-            player = field.addPlayer(player)
+        player = try {
+            synchronized(fieldLock) {
+                field.addPlayer(player)
+            }
+        } catch (e: IllegalStateException) {
+            context.connectionManager.send(
+                model.api.v1.dto.Error(
+                    join.address,
+                    master.id,
+                    "на поле нет места"
+                )
+            )
+            joinRequest.decline()
+            return
         }
 
         joinRequest.accept(player)
     }
 
+    private fun onDeathNotification() {
+        logger.info { "onDeathNotification()" }
+        if (deputy == null) {
+            context.stateHolder.change(
+                LobbyState(context)
+            )
+            return
+        }
+        logger.info { "Становимся зрителем" }
+//        val replacement = deputy
+//        replacement?.role = NodeRole.MASTER
+//        notification.replaceMe(replacement)
+        context.connectionManager.send(
+            RoleChange(
+                deputy!!.address,
+                master.id,
+                deputy!!.id,
+                NodeRole.VIEWER,
+                NodeRole.MASTER
+            )
+        )
+        context.stateHolder.change(
+            NormalMatchState(
+                context,
+                master.id,
+                gameName,
+                config,
+                master.name
+            )
+        )
+    }
+
     override fun onNodeRemoved(address: InetSocketAddress, role: NodeRole) {
+        logger.info { "onNodeRemoved() : address=$address, role=$role" }
         val player = field.getPlayerByAddress(address)
             ?: return
-        field.removePlayer(player.id)
+        synchronized(fieldLock) {
+            field.removePlayer(player.id)
+        }
 
         if (deputy == null || role == NodeRole.DEPUTY) {
             for (node in field.players.values) {
-                if (node.role != NodeRole.MASTER) {
+                if (node.id != master.id && node.role != NodeRole.VIEWER) {
                     context.connectionManager.send(
                         RoleChange(
                             node.address,

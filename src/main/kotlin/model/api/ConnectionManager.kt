@@ -44,6 +44,7 @@ class ConnectionManager(
     private val scheduledExecutor = Executors.newScheduledThreadPool(SCHEDULED_DEFAULT_THREADS_NUM)
     private val playerId = AtomicInteger()
     private val delayMs = AtomicLong(DEFAULT_DELAY_MS)
+    private val logger = KotlinLogging.logger {  }
 
     // Общее
     private var msgSeq = AtomicLong(Long.MIN_VALUE)
@@ -73,16 +74,19 @@ class ConnectionManager(
                     if (player.role == NodeRole.DEPUTY) {
                         continue
                     }
+                    logger.warn { "put1() : address=${player.address}, role=$role"}
                     nodesHolder.put(player.address, player.role)
                 }
             }
             if (nodesHolder.deputy() != null) {
+                logger.warn { "put2() : address=${nodesHolder.deputy()!!}, role=$role"}
                 nodesHolder.put(nodesHolder.deputy()!!, NodeRole.MASTER)
             }
         }
     }
 
     fun trackNode(address: InetSocketAddress, role: NodeRole) {
+        logger.warn { "put3() : address=${address}, role=$role"}
         nodesHolder.put(address, role)
     }
 
@@ -224,7 +228,12 @@ class ConnectionManager(
             is model.api.v1.dto.Error -> requestController.error(message)
             is GameState -> {
                 if (!nodesHolder.contains(message.address)) {
-                    nodesHolder.put(message.address, NodeRole.NORMAL)
+                    val found = message.players.find { player -> player.address == message.address }
+                    if (found == null) {
+                        logger.warn { "попытка отправить состояние не игроку" }
+                    } else {
+                        nodesHolder.put(found.address, found.role)
+                    }
                 }
                 requestController.state(message)
             }
@@ -237,6 +246,7 @@ class ConnectionManager(
 
             is RoleChange -> {
                 if (message.receiverRole != null) {
+                    logger.warn { "put5() : address=${message.address}, role=${message.receiverRole}"}
                     nodesHolder.put(message.address, message.receiverRole)
                 }
                 requestController.roleChange(message)
@@ -252,11 +262,15 @@ class ConnectionManager(
     private fun dispatch(gameMessage: Message) {
         try {
             when (gameMessage) {
-                is Announcement -> (onAnnouncementHandler ?: onOtherHandler)?.invoke(gameMessage)
-
+                is Announcement -> {
+                    (onAnnouncementHandler ?: onOtherHandler)?.invoke(gameMessage)
+                }
                 is model.api.v1.dto.Error -> (onErrorHandler ?: onOtherHandler)?.invoke(gameMessage)
                 is GameState -> {
-                    if (onGameStateHandler == null) return
+                    if (onGameStateHandler == null) {
+                        logger.warn { "onGameStateHandler == null" }
+                        return
+                    }
 
                     Ack(
                         address = gameMessage.address,
@@ -289,10 +303,12 @@ class ConnectionManager(
                             )
 
                             // Если добавили нового игрока в игру.
+                            logger.warn { "put8() : address=${player.address}, role=${player.role}"}
                             nodesHolder.put(player.address, player.role)
                         },
                         declineAction = {}
                     )
+                    nodesHolder.freeze(delayMs.get() * 3)
 
                     onJoinRequestHandler?.invoke(joinRequest)
 //                    (onJoinHandler ?: onOtherHandler)?.invoke(gameMessage)
@@ -372,6 +388,7 @@ class ConnectionManager(
                     if (player.role == NodeRole.DEPUTY) {
                         continue
                     }
+                    logger.warn { "put6() : address=${player.address}, role=${player.role}"}
                     nodesHolder.put(player.address, player.role)
                 }
             }
@@ -380,7 +397,17 @@ class ConnectionManager(
         // Если мастер поменялся, то поймем мы это при удалении ноды (мастер умрет).
     }
 
+    private fun inGame() : Boolean {
+        return onNodeRemovedHandler != null && onGameStateHandler != null && onAnnouncementHandler == null
+    }
+    private fun inLobby() : Boolean {
+        return onAnnouncementHandler != null
+    }
+
     private fun handlePing(ping: Ping) {
+        if (!inGame()) {
+            return
+        }
         requestController.ack(
             Ack(
                 address = ping.address,
@@ -403,6 +430,7 @@ class ConnectionManager(
         if (join is Join) {
             onJoinAccepted?.invoke(join, ack.receiverId)
             // Если успешно подключились к игре.
+            logger.warn { "put7() : address=${ack.address}, NodeRole.MASTER"}
             nodesHolder.put(ack.address, NodeRole.MASTER)
         }
     }

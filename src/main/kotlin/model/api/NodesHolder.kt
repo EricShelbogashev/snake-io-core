@@ -43,6 +43,7 @@ class NodesHolder(
     private var scheduledFuture: ScheduledFuture<*>
     private val delay: AtomicLong
     private val freeze = AtomicLong(0)
+    val logger = KotlinLogging.logger { }
 
     init {
         this.delay = AtomicLong(delay)
@@ -131,6 +132,7 @@ class NodesHolder(
     }
 
     fun actualize(address: InetSocketAddress) {
+        logger.warn { "actualize() : address=$address"}
         val pair = connectedNodes[address] ?: return
 
         connectedNodes[address] = pair.first to System.currentTimeMillis()
